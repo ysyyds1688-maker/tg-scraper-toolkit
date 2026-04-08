@@ -1,1 +1,2 @@
 telethon>=1.36.0
+pysocks>=1.7.1
