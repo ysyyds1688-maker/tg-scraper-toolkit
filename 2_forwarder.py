@@ -33,6 +33,52 @@ TG_LINK_PATTERNS = [
     r"@[\w]{5,}",
 ]
 
+# ============================================================
+# 訊息過濾（不轉發的內容）
+# ============================================================
+
+# 包含這些關鍵字的訊息不轉發
+BLOCK_KEYWORDS = [
+    # 福利宣傳類
+    "福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip",
+    "免費無套", "免車資", "免房費", "立減", "消費4000", "消費6000",
+    "消費10000", "消費12000", "消費18000", "消費24000", "消費30000",
+    "消費36000", "今日消費", "領取以下", "送原味", "自慰影片",
+    "一日伴遊", "雙飛免費", "升級茶坊", "會員卡", "體驗高中",
+    "炮友", "送長期",
+    # 名單清單類
+    "名單", "LADIES LIST", "ladies list", "預約制",
+    "BOOKINGS", "bookings",
+    # 推廣/廣告類
+    "推廣", "合作的朋友", "禁止將價位截圖", "不定時發放",
+    "加入思思", "喝茶不迷路", "一鍵訂閱", "新客必讀",
+    "暗黑素人", "性福小天地",
+    # 外部連結推廣
+    "gleezy.net", "gleezy.top", "jkf699",
+]
+
+# 包含超過這個數量的地區標記就判定為名單
+LIST_MARKERS = ["【", "🔺", "➡️"]
+LIST_THRESHOLD = 5  # 超過 5 個就判定為名單
+
+
+def should_skip(text):
+    """判斷這則訊息是否應該跳過（不轉發）"""
+    if not text:
+        return False
+
+    # 檢查關鍵字
+    for kw in BLOCK_KEYWORDS:
+        if kw in text:
+            return True
+
+    # 檢查是否為名單格式（大量 🔺 或 【地區】）
+    for marker in LIST_MARKERS:
+        if text.count(marker) >= LIST_THRESHOLD:
+            return True
+
+    return False
+
 
 # ============================================================
 # 工具函式
@@ -117,6 +163,10 @@ async def resend_message(client, target, msg, bot_username):
     """重新發送一則訊息（先下載媒體再重新上傳，完全不顯示來源）"""
     text = (msg.text or "").strip()
 
+    # 過濾不要的訊息
+    if should_skip(text):
+        return "skipped"
+
     if bot_username:
         text = replace_links(text, bot_username)
 
@@ -151,6 +201,10 @@ async def resend_album(client, target, album_msgs, bot_username):
         if m.text and m.text.strip():
             text = m.text.strip()
             break
+
+    # 過濾不要的訊息
+    if should_skip(text):
+        return "skipped"
 
     if bot_username:
         text = replace_links(text, bot_username)
@@ -219,7 +273,10 @@ async def mode_realtime(client):
         if grouped_id in album_buffer:
             msgs = album_buffer.pop(grouped_id)
             ok = await resend_album(client, target, msgs, BOT_USERNAME)
-            if ok:
+            if ok == "skipped":
+                time_str = datetime.now().strftime("%H:%M:%S")
+                print(f"  [{time_str}] ⏭ 相簿已過濾（福利/名單）")
+            elif ok:
                 count += 1
                 time_str = datetime.now().strftime("%H:%M:%S")
                 print(f"  [{time_str}] #{count} 相簿({len(msgs)}張) ✅")
@@ -231,15 +288,17 @@ async def mode_realtime(client):
         grouped_id = getattr(msg, "grouped_id", None)
 
         if grouped_id:
-            # 相簿 → 暫存，等收齊再一起發
             if grouped_id not in album_buffer:
                 album_buffer[grouped_id] = []
                 asyncio.create_task(flush_album(grouped_id))
             album_buffer[grouped_id].append(msg)
         else:
-            # 單則訊息
             ok = await resend_message(client, target, msg, BOT_USERNAME)
-            if ok:
+            if ok == "skipped":
+                time_str = datetime.now().strftime("%H:%M:%S")
+                preview = (event.text or "")[:30]
+                print(f"  [{time_str}] ⏭ 已過濾: {preview}...")
+            elif ok:
                 count += 1
                 source_name = source_names.get(event.chat_id, "未知")
                 time_str = datetime.now().strftime("%H:%M:%S")
@@ -308,13 +367,18 @@ async def mode_batch_resend(client):
                         j += 1
 
                     ok = await resend_album(client, target, album, BOT_USERNAME)
-                    if ok:
+                    if ok == "skipped":
+                        print(f"    ⏭ 相簿已過濾（福利/名單）")
+                    elif ok:
                         count += 1
                         print(f"    ✅ 相簿({len(album)}張)")
                     i = j
                 else:
                     ok = await resend_message(client, target, msg, BOT_USERNAME)
-                    if ok:
+                    if ok == "skipped":
+                        preview = (msg.text or "")[:30]
+                        print(f"    ⏭ 已過濾: {preview}...")
+                    elif ok:
                         count += 1
                         preview = (msg.text or "[媒體]")[:40]
                         if count % 10 == 0 or count <= 3:
