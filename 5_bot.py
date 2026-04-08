@@ -38,7 +38,14 @@ def load_agents():
         save_agents([])
         return []
     with open(AGENTS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        agents = json.load(f)
+    # 兼容舊格式：name → source_name
+    for a in agents:
+        if "source_name" not in a and "name" in a:
+            a["source_name"] = a.pop("name")
+        if "group_name" in a:
+            del a["group_name"]
+    return agents
 
 
 def save_agents(agents):
