@@ -34,8 +34,37 @@ def get_channel_link(entity):
     return f"https://t.me/c/{entity.id}"
 
 
+async def download_photo(client, msg, img_dir):
+    """下載訊息中的圖片，回傳檔案路徑 or None"""
+    if isinstance(msg.media, MessageMediaPhoto):
+        try:
+            filename = f"{msg.id}.jpg"
+            filepath = os.path.join(img_dir, filename)
+            await client.download_media(msg, file=filepath)
+            return filepath
+        except Exception:
+            return None
+
+    elif isinstance(msg.media, MessageMediaDocument):
+        doc = msg.media.document
+        if doc:
+            mime = getattr(doc, "mime_type", "") or ""
+            if mime.startswith("image/"):
+                try:
+                    ext = mime.split("/")[-1]
+                    if ext == "jpeg":
+                        ext = "jpg"
+                    filename = f"{msg.id}.{ext}"
+                    filepath = os.path.join(img_dir, filename)
+                    await client.download_media(msg, file=filepath)
+                    return filepath
+                except Exception:
+                    return None
+    return None
+
+
 async def scrape_channel(client, dialog, max_messages=0):
-    """抓取頻道訊息 + 下載圖片"""
+    """抓取頻道訊息 + 下載圖片，相簿自動合併"""
     entity = dialog.entity
     title = dialog.title
     channel_link = get_channel_link(entity)
@@ -45,20 +74,85 @@ async def scrape_channel(client, dialog, max_messages=0):
     img_dir = os.path.join(IMAGES_DIR, safe_name)
     os.makedirs(img_dir, exist_ok=True)
 
-    messages = []
-    img_count = 0
-    msg_count = 0
-
     print(f"  開始掃描: {title}")
     print(f"  頻道連結: {channel_link}")
     print(f"  圖片存至: {img_dir}")
     print()
 
+    # 先收集所有訊息
+    raw_messages = []
+    msg_count = 0
     async for msg in client.iter_messages(entity, limit=max_messages or None):
+        raw_messages.append(msg)
         msg_count += 1
+        if msg_count % 200 == 0:
+            print(f"    已讀取 {msg_count} 則訊息...")
+
+    # 反轉成時間順序（舊→新），方便處理相簿
+    raw_messages.reverse()
+
+    # 按 grouped_id 歸組（相簿），沒有 grouped_id 的獨立一組
+    groups = {}  # grouped_id -> [msg, msg, ...]
+    singles = []
+    for msg in raw_messages:
+        gid = getattr(msg, "grouped_id", None)
+        if gid:
+            if gid not in groups:
+                groups[gid] = []
+            groups[gid].append(msg)
+        else:
+            singles.append(msg)
+
+    # 處理所有訊息，輸出合併後的資料
+    messages = []
+    img_count = 0
+
+    # 處理相簿（多張圖對應同一組文字）
+    for gid, group_msgs in groups.items():
+        # 找到有文字的那則訊息
+        text = ""
+        for m in group_msgs:
+            if m.text and m.text.strip():
+                text = m.text.strip()
+                break
+
+        # 下載所有圖片
+        photo_paths = []
+        all_ids = []
+        for m in group_msgs:
+            all_ids.append(str(m.id))
+            path = await download_photo(client, m, img_dir)
+            if path:
+                photo_paths.append(path)
+                img_count += 1
+
+        first_msg = group_msgs[0]
+        row = {
+            "message_id": "; ".join(all_ids),
+            "message_link": f"{channel_link}/{first_msg.id}",
+            "date": first_msg.date.strftime("%Y-%m-%d %H:%M:%S") if first_msg.date else "",
+            "text": text,
+            "views": getattr(first_msg, "views", ""),
+            "forwards": getattr(first_msg, "forwards", ""),
+            "channel_name": title,
+            "channel_link": channel_link,
+            "has_photo": len(photo_paths) > 0,
+            "photo_count": len(photo_paths),
+            "photo_paths": "; ".join(photo_paths),
+            "is_album": True,
+        }
+
+        if text or photo_paths:
+            messages.append(row)
+
+    # 處理單獨訊息
+    for msg in singles:
+        photo_path = await download_photo(client, msg, img_dir)
+        if photo_path:
+            img_count += 1
 
         row = {
-            "message_id": msg.id,
+            "message_id": str(msg.id),
             "message_link": f"{channel_link}/{msg.id}",
             "date": msg.date.strftime("%Y-%m-%d %H:%M:%S") if msg.date else "",
             "text": (msg.text or "").strip(),
@@ -66,57 +160,20 @@ async def scrape_channel(client, dialog, max_messages=0):
             "forwards": getattr(msg, "forwards", ""),
             "channel_name": title,
             "channel_link": channel_link,
-            "has_photo": False,
-            "photo_paths": "",
+            "has_photo": photo_path is not None,
+            "photo_count": 1 if photo_path else 0,
+            "photo_paths": photo_path or "",
+            "is_album": False,
         }
 
-        # 下載圖片
-        photo_paths = []
-
-        # 單張圖片
-        if isinstance(msg.media, MessageMediaPhoto):
-            try:
-                filename = f"{msg.id}.jpg"
-                filepath = os.path.join(img_dir, filename)
-                await client.download_media(msg, file=filepath)
-                photo_paths.append(filepath)
-                img_count += 1
-            except Exception:
-                pass
-
-        # 文件類型（可能是圖片或影片）
-        elif isinstance(msg.media, MessageMediaDocument):
-            doc = msg.media.document
-            if doc:
-                mime = getattr(doc, "mime_type", "") or ""
-                if mime.startswith("image/"):
-                    try:
-                        ext = mime.split("/")[-1]
-                        if ext == "jpeg":
-                            ext = "jpg"
-                        filename = f"{msg.id}.{ext}"
-                        filepath = os.path.join(img_dir, filename)
-                        await client.download_media(msg, file=filepath)
-                        photo_paths.append(filepath)
-                        img_count += 1
-                    except Exception:
-                        pass
-
-        # 相簿（grouped media）- Telethon 會分開處理每個 message
-        # 所以每則 message 只會有一張圖，相簿的多張圖是多則 message
-
-        if photo_paths:
-            row["has_photo"] = True
-            row["photo_paths"] = "; ".join(photo_paths)
-
-        # 只保留有內容的訊息（有文字或有圖片）
-        if row["text"] or photo_paths:
+        if row["text"] or photo_path:
             messages.append(row)
 
-        if msg_count % 100 == 0:
-            print(f"    已處理 {msg_count} 則訊息，{img_count} 張圖片...")
+    # 按時間排序
+    messages.sort(key=lambda x: x["date"])
 
-    print(f"    完成! {msg_count} 則訊息，{img_count} 張圖片，{len(messages)} 筆有效資料")
+    print(f"    完成! {msg_count} 則訊息，{img_count} 張圖片")
+    print(f"    相簿: {len(groups)} 組，單獨: {len([m for m in messages if not m['is_album']])} 則")
     return messages, img_count
 
 
@@ -132,7 +189,8 @@ def save_csv(messages, channel_name):
 
     fieldnames = [
         "message_id", "message_link", "date", "text", "views", "forwards",
-        "channel_name", "channel_link", "has_photo", "photo_paths",
+        "channel_name", "channel_link", "has_photo", "photo_count",
+        "photo_paths", "is_album",
     ]
 
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
