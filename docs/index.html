@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@page { size: A4; margin: 20mm; }
+body { font-family: "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif; font-size: 11px; line-height: 1.6; color: #1f2937; }
+h1 { color: #1a56db; font-size: 24px; text-align: center; border-bottom: 3px solid #1a56db; padding-bottom: 10px; margin-top: 40px; }
+h2 { color: #1a56db; font-size: 18px; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; page-break-before: auto; }
+h3 { color: #1f2937; font-size: 14px; margin-top: 20px; }
+h4 { color: #1f2937; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10px; }
+th { background: #1a56db; color: white; padding: 8px; text-align: left; }
+td { padding: 6px 8px; border: 1px solid #d1d5db; }
+tr:nth-child(even) { background: #f9fafb; }
+pre { background: #f3f4f6; padding: 10px; border-radius: 4px; font-size: 9px; overflow-wrap: break-word; white-space: pre-wrap; }
+code { background: #f3f4f6; padding: 2px 4px; border-radius: 3px; font-size: 10px; }
+hr { border: none; border-top: 2px solid #1a56db; margin: 20px 0; }
+ul, ol { padding-left: 20px; }
+li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h1>TG 自動化獲客系統 — 從 0 到 1 完整指南</h1>
+<hr />
+<h2>一、你需要準備的東西</h2>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>數量</th>
+<th>說明</th>
+<th>取得方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>電腦</td>
+<td>1 台</td>
+<td>Mac 或 Windows 都可</td>
+<td>你現有的</td>
+</tr>
+<tr>
+<td>TG 帳號</td>
+<td>10 個</td>
+<td>每個用不同電話號碼註冊</td>
+<td>買預付卡/太空卡</td>
+</tr>
+<tr>
+<td>手機</td>
+<td>1 支</td>
+<td>用來接收驗證碼</td>
+<td>你現有的</td>
+</tr>
+<tr>
+<td>API 憑證</td>
+<td>每帳號各一組</td>
+<td>api_id + api_hash</td>
+<td>my.telegram.org</td>
+</tr>
+<tr>
+<td>Bot</td>
+<td>1 個</td>
+<td>客服導流用</td>
+<td>@BotFather 建立</td>
+</tr>
+<tr>
+<td>代理 IP</td>
+<td>選配</td>
+<td>不買也能跑（錯開時間）</td>
+<td>proxy 服務商</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>二、系統架構總覽</h2>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">Phase 1               Phase 2              Phase 3             Phase 4
+數據採集      →       內容營運      →      私訊導流     →     客服承接
+
+[撈名單]            [抓圖文]           [多帳號私訊]         [Bot 回覆]
+1_scraper.py        girl_scraper       3_dm_multi.py       5_bot.py
+     │              2_forwarder.py          │                  │
+     ▼              4_publisher.py          ▼                  ▼
+all_members.csv     你的頻道            dm_sent_log.csv    用戶點按鈕
+                    (不顯示來源)        (250-300人/天)     找到客服
+</pre>
+
+<hr />
+<h2>三、Step by Step 操作流程</h2>
+<hr />
+<h3>Step 0：環境安裝（只需做一次）</h3>
+<h4>0-1. 安裝 Python</h4>
+<p>Mac 通常已內建。確認：</p>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">python3 --version
+</pre>
+
+<h4>0-2. 下載專案</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">cd ~/Downloads
+git clone https://github.com/ysyyds1688-maker/tg-scraper-toolkit.git
+cd tg-scraper-toolkit
+</pre>
+
+<h4>0-3. 建立虛擬環境 + 安裝套件</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+</pre>
+
+<hr />
+<h3>Step 1：申請 TG API 憑證（每個帳號都要做）</h3>
+<h4>1-1. 到 https://my.telegram.org 登入</h4>
+<ul>
+<li>輸入該帳號的手機號碼</li>
+<li>收驗證碼登入</li>
+</ul>
+<h4>1-2. 點「API development tools」</h4>
+<ul>
+<li>建立應用程式</li>
+<li>取得 <code>api_id</code>（數字）和 <code>api_hash</code>（字串）</li>
+</ul>
+<h4>1-3. 記錄下來</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">帳號1: phone=+886900000001, api_id=11111111, api_hash=aaaaaa...
+帳號2: phone=+886900000002, api_id=22222222, api_hash=bbbbbb...
+...
+帳號10: phone=+886900000010, api_id=10101010, api_hash=jjjjjj...
+</pre>
+
+<p>⚠️ <strong>每個帳號要用各自的手機號碼登入 my.telegram.org，不能共用同一組 api_id/api_hash</strong></p>
+<hr />
+<h3>Step 2：設定帳號（填入 accounts.json）</h3>
+<h4>2-1. 編輯 accounts.json</h4>
+<p>把 10 個帳號的資訊填進去：</p>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">{
+  "accounts": [
+    {
+      "name": "帳號1",
+      "phone": "+886900000001",
+      "api_id": 11111111,
+      "api_hash": "aaaaaaaaaa",
+      "session_name": "sessions/session_01",
+      "proxy": null,
+      "daily_limit": 20,
+      "delay_min": 60,
+      "delay_max": 150,
+      "enabled": true
+    },
+    {
+      "name": "帳號2",
+      "phone": "+886900000002",
+      "api_id": 22222222,
+      "api_hash": "bbbbbbbbbb",
+      "session_name": "sessions/session_02",
+      "proxy": null,
+      "daily_limit": 25,
+      "delay_min": 70,
+      "delay_max": 180,
+      "enabled": true
+    }
+  ]
+}
+</pre>
+
+<p>⚠️ 重點：
+- <code>proxy</code> 不買代理就填 <code>null</code>
+- <code>daily_limit</code> 新號填 15-20，養過的號填 30-40
+- <code>delay_min/max</code> 每個帳號設不同值（更自然）</p>
+<h4>2-2. 批量登入所有帳號</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 setup_accounts.py
+</pre>
+<ul>
+<li>會逐一要求你輸入每個帳號的驗證碼</li>
+<li>登入成功後產生 session 檔案在 <code>sessions/</code> 資料夾</li>
+<li>之後不用再輸入驗證碼</li>
+</ul>
+<hr />
+<h3>Step 3：養號（重要！不要跳過）</h3>
+<p>每個新帳號需要養 3-7 天再開始大量操作。</p>
+<h4>3-1. 養號期間要做的事</h4>
+<table>
+<thead>
+<tr>
+<th>動作</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>設頭像</td>
+<td>每個帳號不同頭像</td>
+</tr>
+<tr>
+<td>填個人資料</td>
+<td>名字、簡介，每個帳號不同</td>
+</tr>
+<tr>
+<td>加正常群</td>
+<td>加幾個正常的群組（美食、旅遊等）</td>
+</tr>
+<tr>
+<td>正常聊天</td>
+<td>在群裡偶爾發言、看訊息</td>
+</tr>
+<tr>
+<td>不要同時註冊</td>
+<td>分批註冊，隔幾天一批</td>
+</tr>
+</tbody>
+</table>
+<h4>3-2. 養號時間建議</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">Day 1-2:  設頭像、個人資料、加 3-5 個群
+Day 3-4:  在群裡發幾則正常訊息
+Day 5-7:  開始小量測試發私訊（每天 5 人）
+Day 7+:   可以正式跑自動化
+</pre>
+
+<hr />
+<h3>Step 4：撈名單</h3>
+<h4>4-1. 執行撈取腳本</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 1_scraper.py
+</pre>
+
+<h4>4-2. 選擇模式</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">[1] 撈單一群組成員
+[2] 批量撈所有已加入的群組
+[3] 關鍵字搜尋群組並撈取
+[4] 只做合併去重
+</pre>
+
+<h4>4-3. 產出檔案</h4>
+<table>
+<thead>
+<tr>
+<th>檔案</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>all_members.csv</code></td>
+<td>全部成員（去重後）</td>
+</tr>
+<tr>
+<td><code>members_with_username.csv</code></td>
+<td>有 username 的（可私訊）</td>
+</tr>
+<tr>
+<td><code>members_no_username.csv</code></td>
+<td>沒有 username 的</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3>Step 5：抓取圖文內容</h3>
+<h4>5-1. 從來源頻道抓取圖片+文字</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 _archive/girl_scraper.py
+</pre>
+<ul>
+<li>選擇來源頻道</li>
+<li>自動下載圖片到 <code>data/images/</code></li>
+<li>產生 CSV 記錄圖文對應關係</li>
+</ul>
+<hr />
+<h3>Step 6：發佈到你的頻道</h3>
+<p>有兩種方式：</p>
+<h4>方式 A：即時監聽自動重發（推薦）</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 2_forwarder.py
+</pre>
+<p>選模式 1 或 2：
+- 模式 1：即時監聽來源群組，新訊息自動重發到你的頻道
+- 模式 2：歷史批量重發</p>
+<p>自動處理：
+- ✅ 下載媒體再重新上傳（不顯示「轉發自」）
+- ✅ 原始連結替換為 @teaprincess_bot
+- ✅ 底部加上導流文字</p>
+<h4>方式 B：從爬取資料發佈</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 4_publisher.py
+</pre>
+<ul>
+<li>讀取 girl_scraper 抓下來的 CSV + 圖片</li>
+<li>重新發送到你的頻道</li>
+<li>記錄已發佈的訊息，不重發</li>
+</ul>
+<hr />
+<h3>Step 7：啟動客服 Bot</h3>
+<h4>7-1. 啟動 Bot</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">nohup env PYTHONPATH=. python3 5_bot.py > bot.log 2>&1 &
+</pre>
+<p>Bot 會在背景持續運行。</p>
+<h4>7-2. 新增客服</h4>
+<p>在 Bot 對話中發送指令：</p>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">/add 大神 daishen_service
+/add 極樂 jile_cs
+/add 貝兒 beier_service
+</pre>
+<p>格式：<code>/add 來源名稱 客服TG帳號</code></p>
+<h4>7-3. 用戶體驗流程</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">用戶在你的頻道看到圖文
+    ↓
+底部有 @teaprincess_bot 連結
+    ↓
+點進去看到歡迎語 + 客服按鈕
+    ↓
+按鈕顯示：🍵 大神-茶莊客服
+    ↓
+點擊直接跳轉到該客服帳號對話
+</pre>
+
+<h4>7-4. 管理指令</h4>
+<table>
+<thead>
+<tr>
+<th>指令</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/add 來源 username</code></td>
+<td>新增客服</td>
+</tr>
+<tr>
+<td><code>/remove 來源</code></td>
+<td>刪除客服</td>
+</tr>
+<tr>
+<td><code>/list</code></td>
+<td>查看所有客服</td>
+</tr>
+<tr>
+<td><code>/reload</code></td>
+<td>重新載入佳麗資料</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3>Step 8：啟動多帳號私訊</h3>
+<h4>8-1. 確認設定</h4>
+<ul>
+<li><code>accounts.json</code> 已填好 10 個帳號</li>
+<li><code>all_members.csv</code> 名單已準備好</li>
+<li><code>config.py</code> 中 <code>GROUP_INVITE_LINK</code> 已設定</li>
+</ul>
+<h4>8-2. 一鍵啟動</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">PYTHONPATH=. python3 3_dm_multi.py
+</pre>
+
+<h4>8-3. 系統會自動執行</h4>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">📦 名單預分配：
+  帳號1 → 20 人
+  帳號2 → 25 人
+  帳號3 → 30 人
+  ...
+
+🕐 08:00 帳號1 啟動
+  ✅ 發送第 1/20 人... 模擬打字... 發送成功
+  ⏳ 等待 87 秒
+  ✅ 發送第 2/20 人...
+  ...
+  📊 帳號1 完成: 成功 18, 跳過 2
+
+😴 休息 30 分鐘...
+
+🕐 09:20 帳號2 啟動
+  （名單完全不同，不會重複發）
+  ...
+
+🕐 18:00 全部完成
+  📊 今日總計: 250 人
+</pre>
+
+<h4>8-4. 中斷與恢復</h4>
+<ul>
+<li>按 <code>Ctrl+C</code> 隨時中斷，進度自動保存</li>
+<li>明天再跑會自動跳過已發的人</li>
+<li>每日凌晨自動重置各帳號的發送計數</li>
+</ul>
+<hr />
+<h2>四、每日 SOP</h2>
+<table>
+<thead>
+<tr>
+<th>時間</th>
+<th>動作</th>
+<th>指令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>早上</td>
+<td>啟動多帳號私訊</td>
+<td><code>python3 3_dm_multi.py</code></td>
+</tr>
+<tr>
+<td>全天</td>
+<td>Bot 保持運行</td>
+<td><code>nohup ... 5_bot.py &amp;</code>（一次啟動）</td>
+</tr>
+<tr>
+<td>需要時</td>
+<td>撈新名單</td>
+<td><code>python3 1_scraper.py</code></td>
+</tr>
+<tr>
+<td>需要時</td>
+<td>發佈內容到頻道</td>
+<td><code>python3 2_forwarder.py</code></td>
+</tr>
+<tr>
+<td>需要時</td>
+<td>新增/修改客服</td>
+<td>在 Bot 中 <code>/add</code> <code>/remove</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>五、風控與防封號</h2>
+<h3>帳號層面</h3>
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>獨立 API</td>
+<td>每帳號各自的 api_id/api_hash</td>
+</tr>
+<tr>
+<td>獨立電話</td>
+<td>每帳號不同手機號碼</td>
+</tr>
+<tr>
+<td>養號</td>
+<td>新號養 3-7 天再大量操作</td>
+</tr>
+<tr>
+<td>個人資料</td>
+<td>每帳號不同頭像、名字、簡介</td>
+</tr>
+</tbody>
+</table>
+<h3>發送層面</h3>
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>時間錯開</td>
+<td>一次只跑一個帳號，中間休息 30 分鐘</td>
+</tr>
+<tr>
+<td>擬人化</td>
+<td>模擬打字狀態、分段發送</td>
+</tr>
+<tr>
+<td>話術輪換</td>
+<td>5 組模板隨機，每人不同</td>
+</tr>
+<tr>
+<td>延遲差異化</td>
+<td>每帳號不同間隔（60-180 秒）</td>
+</tr>
+<tr>
+<td>每日上限</td>
+<td>新號 15-20，老號 30-40</td>
+</tr>
+</tbody>
+</table>
+<h3>異常處理</h3>
+<table>
+<thead>
+<tr>
+<th>情況</th>
+<th>系統行為</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FloodWait &lt; 5 分鐘</td>
+<td>自動等待後繼續</td>
+</tr>
+<tr>
+<td>FloodWait &gt; 5 分鐘</td>
+<td>停用該帳號，切下一個</td>
+</tr>
+<tr>
+<td>PeerFlood</td>
+<td>立即停用該帳號</td>
+</tr>
+<tr>
+<td>登入失敗</td>
+<td>跳過，繼續下一個帳號</td>
+</tr>
+<tr>
+<td>程式崩潰</td>
+<td>重跑自動續傳，不重複</td>
+</tr>
+</tbody>
+</table>
+<h3>防重複發送（三層保險）</h3>
+<pre style="background:#f3f4f6;padding:10px;border-radius:4px;font-size:9px;">第 1 層：名單預分配 → 每帳號拿到完全不同的人
+第 2 層：即時記錄 → 每發一人立刻寫入 CSV
+第 3 層：啟動檢查 → 重跑自動跳過已發的人
+</pre>
+
+<hr />
+<h2>六、預估產能</h2>
+<table>
+<thead>
+<tr>
+<th>帳號數</th>
+<th>每帳號/天</th>
+<th>每日總量</th>
+<th>每月總量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5 個</td>
+<td>25 人</td>
+<td>125 人</td>
+<td>3,750 人</td>
+</tr>
+<tr>
+<td>10 個</td>
+<td>25 人</td>
+<td>250 人</td>
+<td>7,500 人</td>
+</tr>
+<tr>
+<td>10 個</td>
+<td>30 人</td>
+<td>300 人</td>
+<td>9,000 人</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>七、未來擴展</h2>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>代理 IP</td>
+<td>每帳號配獨立 IP，進一步降低風險</td>
+</tr>
+<tr>
+<td>雲端部署</td>
+<td>部署到 VPS，24 小時不間斷</td>
+</tr>
+<tr>
+<td>訊息內容過濾</td>
+<td>自動區分活動/商品訊息</td>
+</tr>
+<tr>
+<td>數據統計面板</td>
+<td>視覺化每日發送/轉化數據</td>
+</tr>
+<tr>
+<td>多 Bot</td>
+<td>不同頻道配不同 Bot</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
