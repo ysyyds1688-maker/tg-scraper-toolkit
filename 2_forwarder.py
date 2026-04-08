@@ -24,7 +24,7 @@ from telethon.errors import FloodWaitError
 BOT_USERNAME = "teaprincess_bot"
 
 # 每則訊息底部自動加上的導流文字
-FOOTER_TEXT = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方找茶莊客服\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
+FOOTER_TEXT = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
 
 # Telegram 連結正則
 TG_LINK_PATTERNS = [
