@@ -23,6 +23,10 @@ images/
 # Config with real credentials
 config.py
 config_local.py
+accounts.json
+agents.json
+dm_state.json
+published_log.json
 
 # OS
 .DS_Store
