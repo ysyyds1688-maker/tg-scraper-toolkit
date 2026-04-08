@@ -1,0 +1,73 @@
+"""
+Telegram 工具包 - 設定檔範例
+複製此檔案為 config.py，填入你的 API 憑證
+"""
+
+import csv
+import glob
+import os
+
+# ============================================================
+# Telegram API 設定（必填）
+# 到 https://my.telegram.org 申請
+# ============================================================
+API_ID = 12345678              # 替換成你的 api_id
+API_HASH = "your_api_hash"     # 替換成你的 api_hash
+PHONE = "+886912345678"        # 你的手機號碼（含國碼）
+SESSION_NAME = "tg_session"
+
+# ============================================================
+# 路徑設定
+# ============================================================
+TOOLKIT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(TOOLKIT_DIR, "data")
+
+# ============================================================
+# 1_scraper.py 設定
+# ============================================================
+SEARCH_KEYWORDS = [
+    "交友", "成人交友", "台灣",
+    # 加入更多關鍵字...
+]
+
+# ============================================================
+# 2_forwarder.py 設定
+# ============================================================
+TARGET_CHANNEL = ""  # 目標頻道 username 或 ID
+
+# ============================================================
+# 3_dm.py 設定
+# ============================================================
+GROUP_INVITE_LINK = "https://t.me/+xxxxxxxx"  # 群組邀請連結
+
+DM_MIN_DELAY = 60
+DM_MAX_DELAY = 180
+DM_TYPING_DELAY = 3
+DM_SPLIT_DELAY_MIN = 5
+DM_SPLIT_DELAY_MAX = 15
+DM_DAILY_LIMIT = 30
+DM_SENT_LOG = os.path.join(TOOLKIT_DIR, "dm_sent_log.csv")
+DM_CONTACT_FILES = [
+    os.path.join(TOOLKIT_DIR, "all_members.csv"),
+]
+
+# ============================================================
+# 工具函式
+# ============================================================
+
+def get_scraped_group_ids():
+    """讀取所有已爬過的群組 ID"""
+    scraped = set()
+    for f in glob.glob(os.path.join(DATA_DIR, "*.csv")):
+        try:
+            with open(f, "r", encoding="utf-8-sig") as fh:
+                reader = csv.DictReader(fh)
+                if "source_group_id" not in (reader.fieldnames or []):
+                    continue
+                for row in reader:
+                    gid = row.get("source_group_id", "")
+                    if gid:
+                        scraped.add(str(gid))
+        except Exception:
+            pass
+    return scraped

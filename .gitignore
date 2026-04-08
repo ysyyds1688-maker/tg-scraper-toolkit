@@ -1,0 +1,29 @@
+# Session files (contain login tokens - DO NOT commit)
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+tg_venv/
+
+# Output files
+*.csv
+data/
+tg_members_output/
+tg_channel_output/
+tg_search_output/
+
+# Downloaded images
+images/
+
+# Config with real credentials
+config.py
+config_local.py
+
+# OS
+.DS_Store
+Thumbs.db
