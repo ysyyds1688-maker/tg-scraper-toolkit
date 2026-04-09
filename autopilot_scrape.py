@@ -132,10 +132,14 @@ async def deep_crawl_links(client, scraped_ids, joined_ids):
     scanned = 0
 
     dialogs = await client.get_dialogs()
+    # 掃群組 + 頻道的訊息
     groups = [d for d in dialogs if getattr(d.entity, "megagroup", False)]
+    channels = [d for d in dialogs if getattr(d.entity, "broadcast", False)]
+    scan_targets = groups + channels
 
-    for d in groups[:15]:  # 最多掃 15 個已加入的群組
+    for d in scan_targets[:25]:  # 最多掃 25 個
         links = set()
+        icon = "👥" if getattr(d.entity, "megagroup", False) else "📢"
         try:
             async for msg in client.iter_messages(d.entity, limit=DEEP_CRAWL_LIMIT):
                 if msg.text:
@@ -143,11 +147,27 @@ async def deep_crawl_links(client, scraped_ids, joined_ids):
                         links.add(match)
             scanned += 1
 
+            new_in_this = 0
             for link in links:
                 try:
-                    # 嘗試解析連結
+                    # 私密連結也嘗試解析
                     if link.startswith("+") or link.startswith("joinchat"):
-                        continue  # 私密連結跳過，風險高
+                        # 私密連結用 ImportChatInviteRequest 檢查
+                        try:
+                            from telethon.tl.functions.messages import CheckChatInviteRequest
+                            invite = await client(CheckChatInviteRequest(hash=link.lstrip("+")))
+                            if hasattr(invite, "chat"):
+                                entity = invite.chat
+                                if entity.id not in scraped_ids and entity.id not in joined_ids:
+                                    if entity.id not in found_groups and entity.id not in found_channels:
+                                        if getattr(entity, "megagroup", False):
+                                            found_groups[entity.id] = (entity, f"連結自:{d.title[:20]}")
+                                            new_in_this += 1
+                            await asyncio.sleep(1.5)
+                        except Exception:
+                            pass
+                        continue
+
                     entity = await client.get_entity(link)
                     if not isinstance(entity, Channel):
                         continue
@@ -158,12 +178,16 @@ async def deep_crawl_links(client, scraped_ids, joined_ids):
 
                     if getattr(entity, "megagroup", False):
                         found_groups[entity.id] = (entity, f"連結自:{d.title[:20]}")
+                        new_in_this += 1
                     elif getattr(entity, "broadcast", False):
                         found_channels[entity.id] = (entity, f"連結自:{d.title[:20]}")
 
                     await asyncio.sleep(1)
                 except Exception:
                     continue
+
+            if new_in_this > 0:
+                print(f"    {icon} {d.title[:35]}: 找到 {new_in_this} 個新群組（{len(links)} 個連結）")
 
         except Exception:
             continue
