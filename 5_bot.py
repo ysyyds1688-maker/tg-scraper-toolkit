@@ -53,6 +53,21 @@ def save_agents(agents):
         json.dump(agents, f, ensure_ascii=False, indent=2)
 
 
+def make_agent_button(agent):
+    """根據 agent 的 link_type 產生對應的按鈕"""
+    name = agent["source_name"]
+    link_type = agent.get("link_type", "tg")
+
+    if link_type == "url":
+        # 外部連結（LINE 等）
+        url = agent.get("url", "")
+        return Button.url(f"🍵 {name}-茶莊客服", url)
+    else:
+        # TG 帳號
+        username = agent.get("username", "")
+        return Button.url(f"🍵 {name}-茶莊客服", f"https://t.me/{username}")
+
+
 def add_agent(source_name, username):
     """新增客服，source_name = 來源名稱（如 大神、極樂）"""
     agents = load_agents()
@@ -164,10 +179,7 @@ async def main():
 
         buttons = []
         for agent in agents:
-            buttons.append([Button.url(
-                f"🍵 {agent['source_name']}-茶莊客服",
-                f"https://t.me/{agent['username']}"
-            )])
+            buttons.append([make_agent_button(agent)])
 
         await event.respond(text, buttons=buttons)
 
@@ -265,10 +277,7 @@ async def main():
                 f"請聯繫 {agent['source_name']}-茶莊客服 唷！\n\n"
                 f"⚠️ 記得跟客服說是「茶王推薦」的！"
             )
-            buttons = [[Button.url(
-                f"🍵 {agent['source_name']}-茶莊客服",
-                f"https://t.me/{agent['username']}"
-            )]]
+            buttons = [[make_agent_button(agent)]]
             await event.respond(text, buttons=buttons)
 
         elif post and not agent:
@@ -280,10 +289,7 @@ async def main():
             )
             buttons = []
             for a in agents:
-                buttons.append([Button.url(
-                    f"🍵 {a['source_name']}-茶莊客服",
-                    f"https://t.me/{a['username']}"
-                )])
+                buttons.append([make_agent_button(a)])
             if buttons:
                 await event.respond(text, buttons=buttons)
             else:
@@ -298,10 +304,7 @@ async def main():
 
             buttons = []
             for a in agents:
-                buttons.append([Button.url(
-                    f"🍵 {a['source_name']}-茶莊客服",
-                    f"https://t.me/{a['username']}"
-                )])
+                buttons.append([make_agent_button(a)])
             if buttons:
                 await event.respond(text, buttons=buttons)
             else:
