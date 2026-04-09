@@ -24,7 +24,16 @@ from telethon.errors import FloodWaitError
 # ============================================================
 
 BOT_USERNAME = "teaprincess_bot"
-FOOTER_TEXT = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
+
+
+def make_footer(source_name):
+    """根據來源名稱產生客製化底部文字"""
+    return (
+        f"\n\n━━━━━━━━━━━━━━━"
+        f"\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解"
+        f"\n👉 @{BOT_USERNAME}"
+        f"\n👉 點擊{source_name}-茶莊客服後，聯繫時請說是「茶王推薦」的唷！"
+    )
 FORWARD_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forward_log.json")
 
 
@@ -232,7 +241,7 @@ async def download_media(client, msg):
         return None
 
 
-async def resend_message(client, target, msg, bot_username):
+async def resend_message(client, target, msg, bot_username, source_name=""):
     """重新發送一則訊息（先下載媒體再重新上傳，完全不顯示來源）"""
     text = (msg.text or "").strip()
 
@@ -248,8 +257,9 @@ async def resend_message(client, target, msg, bot_username):
     if not clean and not msg.media:
         return "skipped"
 
-    # 加上底部導流文字
-    text = (text + FOOTER_TEXT) if text else FOOTER_TEXT.strip()
+    # 加上客製化底部導流文字
+    footer = make_footer(source_name) if source_name else make_footer("茶莊")
+    text = (text + footer) if text else footer.strip()
 
     try:
         if msg.media:
@@ -272,7 +282,7 @@ async def resend_message(client, target, msg, bot_username):
         return False
 
 
-async def resend_album(client, target, album_msgs, bot_username):
+async def resend_album(client, target, album_msgs, bot_username, source_name=""):
     """重新發送一組相簿（下載所有圖片再重新上傳）"""
     text = ""
     for m in album_msgs:
@@ -287,8 +297,9 @@ async def resend_album(client, target, album_msgs, bot_username):
     if bot_username:
         text = replace_links(text, bot_username)
 
-    # 加上底部導流文字
-    text = (text + FOOTER_TEXT) if text else FOOTER_TEXT.strip()
+    # 加上客製化底部導流文字
+    footer = make_footer(source_name) if source_name else make_footer("茶莊")
+    text = (text + footer) if text else footer.strip()
 
     try:
         filepaths = []
@@ -330,34 +341,42 @@ async def mode_realtime(client):
     target = await get_target(client, TARGET_CHANNEL)
 
     source_ids = [s.entity.id for s in sources]
-    source_names = {s.entity.id: s.title for s in sources}
+    source_titles = {s.entity.id: s.title for s in sources}
 
-    # 相簿暫存（grouped_id → [msgs]）
+    # 為每個來源設定客製化名稱
+    source_custom_names = {}
+    print("\n  為每個來源設定底部顯示名稱：")
+    for s in sources:
+        default = s.title.replace("俱樂部", "").replace("群", "").strip()
+        name = input(f"    {s.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        source_custom_names[s.entity.id] = name
+
+    # 相簿暫存
     album_buffer = {}
-    album_timers = {}
+    album_chat_ids = {}  # grouped_id → chat_id
 
     print(f"\n即時監聽中... (Ctrl+C 停止)")
     print(f"來源: {', '.join(s.title for s in sources)}")
     print(f"目標: {target.title}")
-    print(f"連結替換: {'@' + BOT_USERNAME if BOT_USERNAME else '不替換'}")
     print("-" * 50)
 
     count = 0
 
     async def flush_album(grouped_id):
-        """延遲後發送完整相簿"""
         nonlocal count
-        await asyncio.sleep(2)  # 等 2 秒收齊相簿
+        await asyncio.sleep(2)
         if grouped_id in album_buffer:
             msgs = album_buffer.pop(grouped_id)
-            ok = await resend_album(client, target, msgs, BOT_USERNAME)
+            chat_id = album_chat_ids.pop(grouped_id, None)
+            src_name = source_custom_names.get(chat_id, "茶莊")
+            ok = await resend_album(client, target, msgs, BOT_USERNAME, src_name)
             if ok == "skipped":
-                time_str = datetime.now().strftime("%H:%M:%S")
-                print(f"  [{time_str}] ⏭ 相簿已過濾（福利/名單）")
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"  [{ts}] ⏭ 相簿已過濾")
             elif ok:
                 count += 1
-                time_str = datetime.now().strftime("%H:%M:%S")
-                print(f"  [{time_str}] #{count} 相簿({len(msgs)}張) ✅")
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"  [{ts}] #{count} 相簿({len(msgs)}張) ✅")
 
     @client.on(events.NewMessage(chats=source_ids))
     async def handler(event):
@@ -368,18 +387,20 @@ async def mode_realtime(client):
         if grouped_id:
             if grouped_id not in album_buffer:
                 album_buffer[grouped_id] = []
+                album_chat_ids[grouped_id] = event.chat_id
                 asyncio.create_task(flush_album(grouped_id))
             album_buffer[grouped_id].append(msg)
         else:
-            ok = await resend_message(client, target, msg, BOT_USERNAME)
+            src_name = source_custom_names.get(event.chat_id, "茶莊")
+            ok = await resend_message(client, target, msg, BOT_USERNAME, src_name)
             if ok == "skipped":
-                time_str = datetime.now().strftime("%H:%M:%S")
+                ts = datetime.now().strftime("%H:%M:%S")
                 preview = (event.text or "")[:30]
-                print(f"  [{time_str}] ⏭ 已過濾: {preview}...")
+                print(f"  [{ts}] ⏭ 已過濾: {preview}...")
             elif ok:
                 count += 1
-                source_name = source_names.get(event.chat_id, "未知")
-                time_str = datetime.now().strftime("%H:%M:%S")
+                source_name = source_titles.get(event.chat_id, "未知")
+                ts = datetime.now().strftime("%H:%M:%S")
                 preview = (event.text or "[媒體]")[:50]
                 print(f"  [{time_str}] #{count} {source_name} → {preview} ✅")
 
@@ -401,6 +422,15 @@ async def mode_batch_resend(client):
     if not sources:
         print("未選擇任何群組")
         return
+
+    # 為每個來源設定客製化名稱（用於底部文字）
+    source_names = {}
+    print("\n  為每個來源設定底部顯示名稱：")
+    for s in sources:
+        default = s.title.replace("俱樂部", "").replace("群", "").strip()
+        name = input(f"    {s.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        source_names[s.entity.id] = name
+        print(f"    → 👉 點擊{name}-茶莊客服後...")
 
     target = await get_target(client, TARGET_CHANNEL)
 
@@ -426,7 +456,8 @@ async def mode_batch_resend(client):
     skipped_dup = 0
 
     for source in sources:
-        print(f"\n📥 來源: {source.title}")
+        src_name = source_names.get(source.entity.id, source.title)
+        print(f"\n📥 來源: {source.title}（底部顯示: {src_name}-茶莊客服）")
         count = 0
         skipped = 0
         filtered = 0
@@ -472,7 +503,7 @@ async def mode_batch_resend(client):
                         continue
 
                     # 發送
-                    ok = await resend_album(client, target, album, BOT_USERNAME)
+                    ok = await resend_album(client, target, album, BOT_USERNAME, src_name)
                     if ok == "skipped":
                         filtered += 1
                     elif ok:
@@ -491,7 +522,7 @@ async def mode_batch_resend(client):
                         continue
 
                     # 發送
-                    ok = await resend_message(client, target, msg, BOT_USERNAME)
+                    ok = await resend_message(client, target, msg, BOT_USERNAME, src_name)
                     if ok == "skipped":
                         filtered += 1
                     elif ok:

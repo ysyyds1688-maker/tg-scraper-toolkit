@@ -21,8 +21,13 @@ from telethon import TelegramClient, events
 from datetime import datetime
 
 BOT_USERNAME = "teaprincess_bot"
-FOOTER = ("\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解"
-          "\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！")
+def make_footer(source_name):
+    return (
+        f"\n\n━━━━━━━━━━━━━━━"
+        f"\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解"
+        f"\n👉 @{BOT_USERNAME}"
+        f"\n👉 點擊{source_name}-茶莊客服後，聯繫時請說是「茶王推薦」的唷！"
+    )
 TG_LINKS = [r"https?://t\.me/\+?\w+/?[\w]*", r"https?://telegram\.me/\+?\w+/?[\w]*", r"@[\w]{5,}"]
 BLOCK_KW = ["福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip", "免費無套",
             "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699",
@@ -157,9 +162,12 @@ async def main():
 
     source_input = input("\n  輸入來源編號（逗號分隔）: ").strip()
     source_ids = []
+    selected_groups = []
     for n in source_input.split(","):
         try:
-            source_ids.append(groups[int(n.strip()) - 1].entity.id)
+            idx = int(n.strip()) - 1
+            source_ids.append(groups[idx].entity.id)
+            selected_groups.append(groups[idx])
         except (ValueError, IndexError):
             pass
 
@@ -167,7 +175,15 @@ async def main():
         print("  未選擇來源")
         return
 
-    target_input = input("  輸入你的頻道（username 或 ID）: ").strip()
+    # 為每個來源設定客製化名稱
+    source_custom_names = {}
+    print("\n  為每個來源設定底部顯示名稱：")
+    for g in selected_groups:
+        default = g.title.replace("俱樂部", "").replace("群", "").strip()
+        name = input(f"    {g.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        source_custom_names[g.entity.id] = name
+
+    target_input = input("\n  輸入你的頻道（username 或 ID）: ").strip()
     if target_input.lstrip("-").isdigit():
         target_input = int(target_input)
 
@@ -213,7 +229,9 @@ async def main():
             print(f"  [{ts}] ⏭ 過濾（空訊息）")
             return
 
-        text = (text + FOOTER) if text else FOOTER.strip()
+        src_name = source_custom_names.get(event.chat_id, "茶莊")
+        footer = make_footer(src_name)
+        text = (text + footer) if text else footer.strip()
 
         try:
             if msg.media:
