@@ -417,43 +417,39 @@ async def mode_batch_resend(client):
     skipped_dup = 0
 
     for source in sources:
-        last_id = get_last_forwarded_id(fwd_log, source.entity.id)
-        if last_id:
-            print(f"\n📥 來源: {source.title}（從上次 #{last_id} 之後開始）")
-        else:
-            print(f"\n📥 來源: {source.title}（首次抓取）")
+        print(f"\n📥 來源: {source.title}")
         count = 0
+        skipped = 0
+        filtered = 0
 
         try:
-            # 從所有訊息裡找，跳過已轉發/過濾的，湊滿目標數量
+            # 多抓確保能湊滿
             fetch_limit = want * 10 if want < 999999 else None
             raw_msgs = []
             async for msg in client.iter_messages(source.entity, limit=fetch_limit):
                 raw_msgs.append(msg)
-            raw_msgs.reverse()  # 舊→新
+            raw_msgs.reverse()
 
             if not raw_msgs:
                 print(f"    沒有訊息")
                 continue
 
-            print(f"    掃描 {len(raw_msgs)} 則，目標成功轉發 {want if want < 999999 else '全部'} 則")
+            target_str = want if want < 999999 else "全部"
+            print(f"    掃描 {len(raw_msgs)} 則，目標成功轉發 {target_str} 則")
 
             i = 0
-            while i < len(raw_msgs):
-                # 達到目標數量就停
-                if count >= want:
-                    print(f"    ✅ 已達目標 {want} 則，停止")
-                    break
-
+            while i < len(raw_msgs) and count < want:
                 msg = raw_msgs[i]
                 grouped_id = getattr(msg, "grouped_id", None)
 
                 if grouped_id:
+                    # 收集相簿
                     album = [msg]
                     j = i + 1
                     while j < len(raw_msgs) and getattr(raw_msgs[j], "grouped_id", None) == grouped_id:
                         album.append(raw_msgs[j])
                         j += 1
+                    i = j
 
                     album_text = ""
                     for m in album:
@@ -461,53 +457,51 @@ async def mode_batch_resend(client):
                             album_text = m.text.strip()
                             break
 
+                    # 重複？
                     if is_duplicate(fwd_log, source.entity.id, album[0].id, album_text):
-                        skipped_dup += 1
-                        i = j
+                        skipped += 1
                         continue
 
+                    # 發送
                     ok = await resend_album(client, target, album, BOT_USERNAME)
                     if ok == "skipped":
-                        pass  # 過濾的不算，繼續找下一則
+                        filtered += 1
                     elif ok:
                         count += 1
                         mark_forwarded(fwd_log, source.entity.id, album[0].id, album_text)
-                        print(f"    ✅ [{count}/{want}] 相簿({len(album)}張)")
-                    i = j
+                        print(f"    ✅ [{count}/{target_str}] 相簿({len(album)}張)")
+                        await asyncio.sleep(delay)
+
                 else:
+                    i += 1
                     msg_text = (msg.text or "").strip()
 
+                    # 重複？
                     if is_duplicate(fwd_log, source.entity.id, msg.id, msg_text):
-                        skipped_dup += 1
-                        i += 1
+                        skipped += 1
                         continue
 
+                    # 發送
                     ok = await resend_message(client, target, msg, BOT_USERNAME)
                     if ok == "skipped":
-                        pass  # 過濾的不算，繼續找下一則
+                        filtered += 1
                     elif ok:
                         count += 1
                         mark_forwarded(fwd_log, source.entity.id, msg.id, msg_text)
                         preview = msg_text[:40] if msg_text else "[媒體]"
-                        print(f"    ✅ [{count}/{want}] {preview}")
-                    elif ok:
-                        count += 1
-                        mark_forwarded(fwd_log, source.entity.id, msg.id, msg_text)
-                        preview = msg_text[:40] if msg_text else "[媒體]"
-                        if count % 10 == 0 or count <= 3:
-                            print(f"    ✅ #{count} {preview}")
-                    i += 1
+                        print(f"    ✅ [{count}/{target_str}] {preview}")
+                        await asyncio.sleep(delay)
 
-                await asyncio.sleep(delay)
-
-            print(f"    完成: {count} 則，跳過重複: {skipped_dup} 則")
+            if count >= want:
+                print(f"    達到目標 {want} 則!")
+            print(f"    結果: 轉發 {count}, 重複跳過 {skipped}, 過濾 {filtered}")
             total += count
 
         except Exception as e:
             print(f"    ❌ 失敗: {e}")
 
     print(f"\n{'='*50}")
-    print(f"全部完成! 轉發 {total} 則，跳過重複 {skipped_dup} 則")
+    print(f"全部完成! 共成功轉發 {total} 則")
 
 
 # ============================================================
