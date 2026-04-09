@@ -220,10 +220,21 @@ async def select_groups(groups, prompt="選擇群組編號（逗號分隔，如 
     return [groups[i] for i in indices if 0 <= i < len(groups)]
 
 
+TARGET_CHANNELS = {
+    "茶王皇朝（正式）": "https://t.me/+K71Odol9_CYyYzk1",
+    "測試群": "https://t.me/+hhBXsLhL_7diMGFl",
+}
+
+
 async def get_target(client, target_channel):
     if not target_channel:
-        target_channel = input("\n輸入目標頻道（username 或 ID 或連結）: ").strip()
-    if target_channel.lstrip("-").isdigit():
+        from menu_ui import select_menu
+        options = list(TARGET_CHANNELS.keys())
+        idx = select_menu("選擇目標頻道", options)
+        if idx == -1:
+            return None
+        target_channel = TARGET_CHANNELS[options[idx]]
+    if isinstance(target_channel, str) and target_channel.lstrip("-").isdigit():
         target_channel = int(target_channel)
     entity = await client.get_entity(target_channel)
     print(f"✅ 目標頻道: {entity.title}")

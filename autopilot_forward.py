@@ -187,9 +187,16 @@ async def main():
         source_custom_names[g.entity.id] = name
         print(f"    {g.title} → {name}-茶莊客服")
 
-    target_input = input("\n  輸入你的頻道（username 或 ID）: ").strip()
-    if target_input.lstrip("-").isdigit():
-        target_input = int(target_input)
+    from menu_ui import select_menu
+    TARGET_CHANNELS = {
+        "茶王皇朝（正式）": "https://t.me/+K71Odol9_CYyYzk1",
+        "測試群": "https://t.me/+hhBXsLhL_7diMGFl",
+    }
+    options = list(TARGET_CHANNELS.keys())
+    idx = select_menu("選擇目標頻道", options)
+    if idx == -1:
+        return
+    target_input = TARGET_CHANNELS[options[idx]]
 
     target = await client.get_entity(target_input)
 
