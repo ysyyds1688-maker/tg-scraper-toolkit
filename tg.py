@@ -266,6 +266,9 @@ def main_menu():
             {"name": "系統設定", "desc": "群組連結/Bot/延遲參數"},
             {"name": "Bot 客服管理", "desc": "新增/刪除客服"},
         ]},
+        {"label": "工具", "items": [
+            {"name": "備份（換電腦用）", "desc": "打包所有設定、記錄、session 到 zip"},
+        ]},
         {"label": "", "items": [
             {"name": "離開", "desc": ""},
         ]},
@@ -290,6 +293,8 @@ def main_menu():
         lambda: run_script("setup_accounts.py"),
         lambda: run_script("setup_config.py"),
         lambda: run_script("setup_agents.py"),
+        # 工具
+        lambda: run_script("backup.py"),
         None,  # 離開
     ]
 
