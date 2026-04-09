@@ -24,6 +24,10 @@ def _get_key():
             return "space"
         elif key == b"a":
             return "all"
+        elif key == b"g":
+            return "groups"
+        elif key == b"c":
+            return "channels"
         return None
     else:
         import tty
@@ -47,6 +51,10 @@ def _get_key():
                 return "space"
             elif ch == "a":
                 return "all"
+            elif ch == "g":
+                return "groups"
+            elif ch == "c":
+                return "channels"
             elif ch == "q":
                 return "quit"
         finally:
@@ -115,7 +123,8 @@ def select_multi(title, options):
         print(f"  ║  {title:<45s} ║")
         print(f"  ╚═══════════════════════════════════════════════╝")
         print(f"\033[0m")
-        print(f"  \033[90m上下鍵移動，空白鍵勾選，a 全選/全取消，Enter 確認\033[0m")
+        print(f"  \033[90m上下鍵移動，空白鍵勾選，Enter 確認\033[0m")
+        print(f"  \033[90ma 全選  g 勾選群組  c 勾選頻道  q 離開\033[0m")
         print(f"  \033[90m已選 {len(checked)} 個\033[0m\n")
 
         for i, opt in enumerate(options):
@@ -140,6 +149,20 @@ def select_multi(title, options):
                 checked.clear()
             else:
                 checked = set(range(total))
+        elif key == "groups":
+            # 勾選所有群組（👥）
+            group_ids = {i for i, o in enumerate(options) if "👥" in o}
+            if group_ids.issubset(checked):
+                checked -= group_ids
+            else:
+                checked |= group_ids
+        elif key == "channels":
+            # 勾選所有頻道（📢）
+            ch_ids = {i for i, o in enumerate(options) if "📢" in o}
+            if ch_ids.issubset(checked):
+                checked -= ch_ids
+            else:
+                checked |= ch_ids
         elif key == "enter":
             return sorted(checked)
         elif key == "quit":
