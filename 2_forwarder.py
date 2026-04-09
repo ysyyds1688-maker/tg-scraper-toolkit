@@ -118,12 +118,16 @@ BLOCK_KEYWORDS = [
     # 名單清單類
     "名單", "LADIES LIST", "ladies list", "預約制",
     "BOOKINGS", "bookings",
+    # 公告/通知類
+    "公告", "通知", "注意", "NEW LINE", "新LINE", "加入我",
+    "把我加", "加我", "快來把我",
     # 推廣/廣告類
     "推廣", "合作的朋友", "禁止將價位截圖", "不定時發放",
     "加入思思", "喝茶不迷路", "一鍵訂閱", "新客必讀",
     "暗黑素人", "性福小天地",
     # 外部連結推廣
     "gleezy.net", "gleezy.top", "jkf699",
+    "line.me",
 ]
 
 # 包含超過這個數量的地區標記就判定為名單
@@ -238,6 +242,11 @@ async def resend_message(client, target, msg, bot_username):
 
     if bot_username:
         text = replace_links(text, bot_username)
+
+    # 替換連結後如果沒有實質內容，且沒有媒體，跳過
+    clean = re.sub(r"👉 諮詢客服:.*", "", text).strip()
+    if not clean and not msg.media:
+        return "skipped"
 
     # 加上底部導流文字
     text = (text + FOOTER_TEXT) if text else FOOTER_TEXT.strip()

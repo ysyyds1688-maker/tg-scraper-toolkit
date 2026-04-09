@@ -25,7 +25,9 @@ FOOTER = ("\n\n━━━━━━━━━━━━━━━\n🍵 想約這位�
           "\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！")
 TG_LINKS = [r"https?://t\.me/\+?\w+/?[\w]*", r"https?://telegram\.me/\+?\w+/?[\w]*", r"@[\w]{5,}"]
 BLOCK_KW = ["福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip", "免費無套",
-            "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699"]
+            "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699",
+            "公告", "通知", "注意", "NEW LINE", "新LINE", "加入我", "把我加", "加我",
+            "快來把我", "line.me"]
 TEMP_DIR = os.path.join(TOOLKIT_DIR, "_temp_media")
 
 # 已轉發記錄
@@ -204,6 +206,13 @@ async def main():
         # 替換連結 + 加底部文字
         original_text = text
         text = replace_links(text)
+
+        # 替換後沒有實質內容且沒媒體，跳過
+        clean = re.sub(r"👉 諮詢客服:.*", "", text).strip()
+        if not clean and not msg.media:
+            print(f"  [{ts}] ⏭ 過濾（空訊息）")
+            return
+
         text = (text + FOOTER) if text else FOOTER.strip()
 
         try:
