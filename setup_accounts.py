@@ -190,27 +190,25 @@ def add_account():
 # ============================================================
 
 def delete_account():
-    header()
+    from menu_ui import select_menu
     accounts = load_accounts()
     if not accounts:
         print("  目前沒有帳號\n")
         return
 
-    show_accounts()
-    num = input("  輸入要刪除的帳號編號: ").strip()
-    try:
-        idx = int(num) - 1
-        acc = accounts[idx]
-    except (ValueError, IndexError):
-        print("  無效編號")
+    options = [f"{a['name']} ({a['phone']})" for a in accounts] + ["取消"]
+    idx = select_menu("選擇要刪除的帳號", options)
+
+    if idx == -1 or idx == len(accounts):
+        print("  已取消")
         return
 
+    acc = accounts[idx]
     confirm = input(f"  確認刪除 {acc['name']} ({acc['phone']})？(y/n): ").strip().lower()
     if confirm != "y":
         print("  已取消")
         return
 
-    # 刪除 session 檔
     session_file = acc["session_name"] + ".session"
     if os.path.exists(session_file):
         os.remove(session_file)
@@ -225,21 +223,24 @@ def delete_account():
 # ============================================================
 
 def toggle_account():
-    header()
+    from menu_ui import select_menu
     accounts = load_accounts()
     if not accounts:
         print("  目前沒有帳號\n")
         return
 
-    show_accounts()
-    num = input("  輸入要切換狀態的帳號編號: ").strip()
-    try:
-        idx = int(num) - 1
-        acc = accounts[idx]
-    except (ValueError, IndexError):
-        print("  無效編號")
+    options = []
+    for a in accounts:
+        status = "啟用中" if a.get("enabled", True) else "已停用"
+        options.append(f"{a['name']} [{status}]")
+    options.append("取消")
+
+    idx = select_menu("選擇要切換狀態的帳號", options)
+
+    if idx == -1 or idx == len(accounts):
         return
 
+    acc = accounts[idx]
     acc["enabled"] = not acc.get("enabled", True)
     save_accounts(accounts)
     status = "啟用" if acc["enabled"] else "停用"
@@ -284,19 +285,20 @@ async def login_single(account):
 
 
 def login_menu():
-    header()
+    from menu_ui import select_menu
     accounts = load_accounts()
     if not accounts:
         print("  目前沒有帳號，請先新增\n")
         return
 
-    print("  登入選項:\n")
-    print("    [1] 登入所有未登入的帳號")
-    print("    [2] 選擇特定帳號登入")
-    print("    [3] 驗證所有帳號狀態")
-    print()
-
-    choice = input("  選擇: ").strip()
+    choice = select_menu("登入帳號", [
+        "登入所有未登入的帳號",
+        "選擇特定帳號登入",
+        "驗證所有帳號狀態",
+    ])
+    if choice == -1:
+        return
+    choice = str(choice + 1)
 
     os.makedirs(SESSIONS_DIR, exist_ok=True)
 
@@ -410,47 +412,33 @@ def batch_add():
 # ============================================================
 
 def main():
+    from menu_ui import select_menu
+
+    OPTIONS = [
+        "查看所有帳號",
+        "新增帳號（逐一填寫）",
+        "快速批量新增（一次貼多個）",
+        "刪除帳號",
+        "啟用/停用帳號",
+        "登入帳號",
+        "返回主選單",
+    ]
+    ACTIONS = [
+        lambda: (show_accounts(), input("  按 Enter 繼續...")),
+        lambda: (add_account(), input("  按 Enter 繼續...")),
+        lambda: (batch_add(), input("  按 Enter 繼續...")),
+        lambda: (delete_account(), input("  按 Enter 繼續...")),
+        lambda: (toggle_account(), input("  按 Enter 繼續...")),
+        lambda: (login_menu(), input("  按 Enter 繼續...")),
+        None,
+    ]
+
     while True:
-        header()
-        accounts = load_accounts()
-        logged_in = sum(1 for a in accounts if os.path.exists(a["session_name"] + ".session"))
-
-        print(f"  目前帳號: {len(accounts)} 個 | 已登入: {logged_in} 個\n")
-        print("    [1] 查看所有帳號")
-        print("    [2] 新增帳號（逐一填寫）")
-        print("    [3] 快速批量新增（一次貼多個）")
-        print("    [4] 刪除帳號")
-        print("    [5] 啟用/停用帳號")
-        print("    [6] 登入帳號")
-        print()
-        print("    [0] 返回主選單")
-        print()
-
-        choice = input("  請選擇 > ").strip()
-
-        if choice == "1":
-            show_accounts()
-            input("  按 Enter 繼續...")
-        elif choice == "2":
-            add_account()
-            input("  按 Enter 繼續...")
-        elif choice == "3":
-            batch_add()
-            input("  按 Enter 繼續...")
-        elif choice == "4":
-            delete_account()
-            input("  按 Enter 繼續...")
-        elif choice == "5":
-            toggle_account()
-            input("  按 Enter 繼續...")
-        elif choice == "6":
-            login_menu()
-            input("  按 Enter 繼續...")
-        elif choice == "0":
+        idx = select_menu("帳號管理", OPTIONS)
+        if idx == -1 or idx == len(OPTIONS) - 1:
             break
-        else:
-            print("  無效選擇")
-            input("  按 Enter 繼續...")
+        if ACTIONS[idx]:
+            ACTIONS[idx]()
 
 
 if __name__ == "__main__":

@@ -81,21 +81,19 @@ def add_agent():
 
 
 def remove_agent():
-    header()
+    from menu_ui import select_menu
     agents = load_agents()
     if not agents:
         print("  目前沒有客服\n")
         return
 
-    show_agents()
-    num = input("  輸入要刪除的編號: ").strip()
-    try:
-        idx = int(num) - 1
-        a = agents[idx]
-    except (ValueError, IndexError):
-        print("  無效編號")
+    options = [f"{a['source_name']} (@{a['username']})" for a in agents] + ["取消"]
+    idx = select_menu("選擇要刪除的客服", options)
+
+    if idx == -1 or idx == len(agents):
         return
 
+    a = agents[idx]
     confirm = input(f"  確認刪除 {a['source_name']} (@{a['username']})？(y/n): ").strip().lower()
     if confirm != "y":
         return
@@ -106,27 +104,19 @@ def remove_agent():
 
 
 def main():
+    from menu_ui import select_menu
+
+    OPTIONS = ["新增客服", "刪除客服", "返回主選單"]
+
     while True:
-        header()
-        show_agents()
-        print("    [1] 新增客服")
-        print("    [2] 刪除客服")
-        print()
-        print("    [0] 返回主選單")
-        print()
-
-        choice = input("  請選擇 > ").strip()
-
-        if choice == "1":
+        idx = select_menu("Bot 客服管理", OPTIONS)
+        if idx == -1 or idx == 2:
+            break
+        elif idx == 0:
             add_agent()
             input("  按 Enter 繼續...")
-        elif choice == "2":
+        elif idx == 1:
             remove_agent()
-            input("  按 Enter 繼續...")
-        elif choice == "0":
-            break
-        else:
-            print("  無效選擇")
             input("  按 Enter 繼續...")
 
 

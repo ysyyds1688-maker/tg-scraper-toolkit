@@ -56,7 +56,10 @@ def update_config(key, new_value):
                 parts = line.split("#", 1)
                 comment = "  # " + parts[1].strip()
 
-            if isinstance(new_value, str) and not new_value.startswith("[") and not new_value.startswith("os."):
+            # 整數型的值不加引號
+            if value_type == "int" or new_value.isdigit():
+                lines[i] = f'{key} = {new_value}{comment}\n'
+            elif isinstance(new_value, str) and not new_value.startswith("[") and not new_value.startswith("os."):
                 lines[i] = f'{key} = "{new_value}"{comment}\n'
             else:
                 lines[i] = f'{key} = {new_value}{comment}\n'
@@ -119,25 +122,27 @@ def edit_setting(label, key, value_type="str"):
 
 
 def main():
+    from menu_ui import select_menu
+
+    OPTIONS = [
+        "修改群組邀請連結",
+        "修改私訊延遲參數",
+        "修改每日發送上限",
+        "修改 API 設定（主帳號）",
+        "修改手機號碼（主帳號）",
+        "返回主選單",
+    ]
+
     while True:
         show_current()
-        print("  修改設定:\n")
-        print("    [1] 修改群組邀請連結")
-        print("    [2] 修改私訊延遲參數")
-        print("    [3] 修改每日發送上限")
-        print("    [4] 修改 API 設定（主帳號）")
-        print("    [5] 修改手機號碼（主帳號）")
-        print()
-        print("    [0] 返回主選單")
-        print()
+        idx = select_menu("系統設定", OPTIONS)
 
-        choice = input("  請選擇 > ").strip()
-
-        if choice == "1":
+        if idx == -1 or idx == 5:
+            break
+        elif idx == 0:
             edit_setting("群組邀請連結", "GROUP_INVITE_LINK")
             input("  按 Enter 繼續...")
-
-        elif choice == "2":
+        elif idx == 1:
             print("\n  修改私訊延遲參數:\n")
             edit_setting("每人最短延遲(秒)", "DM_MIN_DELAY", "int")
             edit_setting("每人最長延遲(秒)", "DM_MAX_DELAY", "int")
@@ -145,25 +150,16 @@ def main():
             edit_setting("分段最短間隔(秒)", "DM_SPLIT_DELAY_MIN", "int")
             edit_setting("分段最長間隔(秒)", "DM_SPLIT_DELAY_MAX", "int")
             input("  按 Enter 繼續...")
-
-        elif choice == "3":
+        elif idx == 2:
             edit_setting("每日發送上限", "DM_DAILY_LIMIT", "int")
             input("  按 Enter 繼續...")
-
-        elif choice == "4":
+        elif idx == 3:
             print("\n  修改主帳號 API 設定:\n")
             edit_setting("API ID", "API_ID", "int")
             edit_setting("API Hash", "API_HASH")
             input("  按 Enter 繼續...")
-
-        elif choice == "5":
+        elif idx == 4:
             edit_setting("手機號碼", "PHONE")
-            input("  按 Enter 繼續...")
-
-        elif choice == "0":
-            break
-        else:
-            print("  無效選擇")
             input("  按 Enter 繼續...")
 
 
