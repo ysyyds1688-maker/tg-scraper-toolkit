@@ -175,13 +175,17 @@ async def main():
         print("  未選擇來源")
         return
 
-    # 為每個來源設定客製化名稱
+    # 自動簡化來源名稱
     source_custom_names = {}
-    print("\n  為每個來源設定底部顯示名稱：")
+    print("\n  來源名稱對應：")
     for g in selected_groups:
-        default = g.title.replace("俱樂部", "").replace("群", "").strip()
-        name = input(f"    {g.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        name = g.title.replace("俱樂部", "").replace("群", "").strip()
+        for kw in ["真大神", "大神", "極樂", "貝兒", "蘋果", "步兵", "深夜", "娜娜", "含碧樓"]:
+            if kw in g.title:
+                name = kw
+                break
         source_custom_names[g.entity.id] = name
+        print(f"    {g.title} → {name}-茶莊客服")
 
     target_input = input("\n  輸入你的頻道（username 或 ID）: ").strip()
     if target_input.lstrip("-").isdigit():

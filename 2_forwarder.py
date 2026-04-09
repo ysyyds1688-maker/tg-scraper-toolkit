@@ -347,13 +347,17 @@ async def mode_realtime(client):
     source_ids = [s.entity.id for s in sources]
     source_titles = {s.entity.id: s.title for s in sources}
 
-    # 為每個來源設定客製化名稱
+    # 自動簡化來源名稱
     source_custom_names = {}
-    print("\n  為每個來源設定底部顯示名稱：")
+    print("\n  來源名稱對應：")
     for s in sources:
-        default = s.title.replace("俱樂部", "").replace("群", "").strip()
-        name = input(f"    {s.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        name = s.title.replace("俱樂部", "").replace("群", "").strip()
+        for kw in ["真大神", "大神", "極樂", "貝兒", "蘋果", "步兵", "深夜", "娜娜", "含碧樓"]:
+            if kw in s.title:
+                name = kw
+                break
         source_custom_names[s.entity.id] = name
+        print(f"    {s.title} → {name}-茶莊客服")
 
     # 相簿暫存
     album_buffer = {}
@@ -427,14 +431,17 @@ async def mode_batch_resend(client):
         print("未選擇任何群組")
         return
 
-    # 為每個來源設定客製化名稱（用於底部文字）
+    # 自動簡化來源名稱
     source_names = {}
-    print("\n  為每個來源設定底部顯示名稱：")
+    print("\n  來源名稱對應：")
     for s in sources:
-        default = s.title.replace("俱樂部", "").replace("群", "").strip()
-        name = input(f"    {s.title} → 底部顯示名稱 [{default}]: ").strip() or default
+        name = s.title.replace("俱樂部", "").replace("群", "").strip()
+        for kw in ["真大神", "大神", "極樂", "貝兒", "蘋果", "步兵", "深夜", "娜娜", "含碧樓"]:
+            if kw in s.title:
+                name = kw
+                break
         source_names[s.entity.id] = name
-        print(f"    → 👉 點擊{name}-茶莊客服後...")
+        print(f"    {s.title} → {name}-茶莊客服")
 
     target = await get_target(client, TARGET_CHANNEL)
 
