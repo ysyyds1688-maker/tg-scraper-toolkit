@@ -273,11 +273,25 @@ def main_menu():
         elif choice == "11":
             bot_path = os.path.join(TOOLKIT_DIR, "5_bot.py")
             log_path = os.path.join(TOOLKIT_DIR, "bot.log")
-            env_str = f"PYTHONPATH={TOOLKIT_DIR}"
-            os.system(f"nohup env {env_str} {PYTHON} {bot_path} > {log_path} 2>&1 &")
-            print(f"\n  \033[32mBot 已在背景啟動!\033[0m")
-            print(f"  日誌: {log_path}")
-            print(f"  停止: pkill -f 5_bot.py")
+            if os.name == "nt":
+                # Windows
+                os.environ["PYTHONPATH"] = TOOLKIT_DIR
+                subprocess.Popen(
+                    [PYTHON, bot_path],
+                    stdout=open(log_path, "w"),
+                    stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                print(f"\n  \033[32mBot 已在背景啟動!\033[0m")
+                print(f"  日誌: {log_path}")
+                print(f"  停止: 工作管理員 → 結束 python.exe")
+            else:
+                # Mac / Linux
+                env_str = f"PYTHONPATH={TOOLKIT_DIR}"
+                os.system(f"nohup env {env_str} {PYTHON} {bot_path} > {log_path} 2>&1 &")
+                print(f"\n  \033[32mBot 已在背景啟動!\033[0m")
+                print(f"  日誌: {log_path}")
+                print(f"  停止: pkill -f 5_bot.py")
             pause()
         elif choice == "0":
             print("\n  再見!\n")
