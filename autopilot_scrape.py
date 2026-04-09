@@ -50,8 +50,15 @@ DEEP_CRAWL_LIMIT = 200   # 深度搜尋每個群掃幾則訊息找連結
 
 # 黑名單（不撈、不掃的群組，用關鍵字比對群組名稱）
 BLACKLIST = [
+    # 非目標群組
     "台灣群組導航", "Custom Emoji", "PUBG", "吃雞",
     "測試", "茶王皇朝", "茶王忠臣",
+    # 深度搜尋挖到的非目標
+    "福爾摩莎", "蘋果同好", "生態分享", "環保", "動保",
+    "攝徒", "辱華", "粉紅", "淡水小鎮",
+    "政治", "新聞", "投資", "股票", "加密貨幣", "比特幣",
+    "遊戲", "動漫", "電影", "音樂", "教學",
+    "求職", "租屋", "買賣", "代購", "團購",
 ]
 
 # 已處理群組記錄
@@ -149,9 +156,12 @@ async def deep_crawl_links(client, scraped_ids, joined_ids):
     # 掃群組 + 頻道的訊息
     groups = [d for d in dialogs if getattr(d.entity, "megagroup", False)]
     channels = [d for d in dialogs if getattr(d.entity, "broadcast", False)]
+    # 黑名單群組不掃
+    groups = [d for d in groups if not is_blacklisted(d.title)]
+    channels = [d for d in channels if not is_blacklisted(d.title)]
     scan_targets = groups + channels
 
-    for d in scan_targets[:25]:  # 最多掃 25 個
+    for d in scan_targets[:25]:
         links = set()
         icon = "👥" if getattr(d.entity, "megagroup", False) else "📢"
         try:
@@ -224,6 +234,10 @@ async def join_groups(client, groups_dict):
     count = 0
 
     for gid, (entity, kw) in groups_dict.items():
+        # 黑名單跳過
+        if is_blacklisted(entity.title):
+            continue
+
         if count >= JOIN_BATCH_SIZE:
             print(f"    達到單批上限 {JOIN_BATCH_SIZE} 個，休息 {JOIN_BATCH_REST//60} 分鐘...")
             await asyncio.sleep(JOIN_BATCH_REST)
