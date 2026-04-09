@@ -425,18 +425,18 @@ async def mode_batch_resend(client):
         count = 0
 
         try:
-            # 多抓一些，確保過濾後還能湊滿目標數量
-            fetch_limit = want * 5 if want < 999999 else None
+            # 從所有訊息裡找，跳過已轉發/過濾的，湊滿目標數量
+            fetch_limit = want * 10 if want < 999999 else None
             raw_msgs = []
-            async for msg in client.iter_messages(source.entity, limit=fetch_limit, min_id=last_id):
+            async for msg in client.iter_messages(source.entity, limit=fetch_limit):
                 raw_msgs.append(msg)
-            raw_msgs.reverse()
+            raw_msgs.reverse()  # 舊→新
 
             if not raw_msgs:
-                print(f"    沒有新訊息")
+                print(f"    沒有訊息")
                 continue
 
-            print(f"    抓到 {len(raw_msgs)} 則，目標成功轉發 {want if want < 999999 else '全部'} 則")
+            print(f"    掃描 {len(raw_msgs)} 則，目標成功轉發 {want if want < 999999 else '全部'} 則")
 
             i = 0
             while i < len(raw_msgs):
