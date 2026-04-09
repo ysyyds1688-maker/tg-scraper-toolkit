@@ -39,12 +39,21 @@ FORWARD_LOG = os.path.join(TOOLKIT_DIR, "forward_log.json")
 def load_forward_log():
     """載入已轉發記錄"""
     if not os.path.exists(FORWARD_LOG):
-        return {"message_ids": [], "content_hashes": []}
+        return {"message_ids": [], "content_hashes": [], "last_msg_id": {}}
     with open(FORWARD_LOG, "r", encoding="utf-8") as f:
         data = json.load(f)
-    # 只保留最近 10000 筆，避免檔案太大
     data["message_ids"] = data.get("message_ids", [])[-10000:]
     data["content_hashes"] = data.get("content_hashes", [])[-10000:]
+    if "last_msg_id" not in data or not data["last_msg_id"]:
+        last = {}
+        for mid in data["message_ids"]:
+            parts = mid.split(":")
+            if len(parts) == 2:
+                chat_id, msg_id = parts[0], int(parts[1])
+                if chat_id not in last or msg_id > last[chat_id]:
+                    last[chat_id] = msg_id
+        data["last_msg_id"] = {k: v for k, v in last.items()}
+        save_forward_log(data)
     return data
 
 

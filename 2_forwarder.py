@@ -34,11 +34,22 @@ FORWARD_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forward_
 
 def load_forward_log():
     if not os.path.exists(FORWARD_LOG):
-        return {"message_ids": [], "content_hashes": []}
+        return {"message_ids": [], "content_hashes": [], "last_msg_id": {}}
     with open(FORWARD_LOG, "r", encoding="utf-8") as f:
         data = json.load(f)
     data["message_ids"] = data.get("message_ids", [])[-10000:]
     data["content_hashes"] = data.get("content_hashes", [])[-10000:]
+    # 自動從 message_ids 推算 last_msg_id（如果沒有的話）
+    if "last_msg_id" not in data or not data["last_msg_id"]:
+        last = {}
+        for mid in data["message_ids"]:
+            parts = mid.split(":")
+            if len(parts) == 2:
+                chat_id, msg_id = parts[0], int(parts[1])
+                if chat_id not in last or msg_id > last[chat_id]:
+                    last[chat_id] = msg_id
+        data["last_msg_id"] = {k: v for k, v in last.items()}
+        save_forward_log(data)
     return data
 
 
