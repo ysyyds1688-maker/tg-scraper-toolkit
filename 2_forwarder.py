@@ -73,7 +73,16 @@ def mark_forwarded(fwd_log, chat_id, msg_id, text):
     h = get_content_hash(text)
     if h:
         fwd_log["content_hashes"].append(h)
+    # 記錄每個群組最後轉發的 message_id
+    if "last_msg_id" not in fwd_log:
+        fwd_log["last_msg_id"] = {}
+    fwd_log["last_msg_id"][str(chat_id)] = msg_id
     save_forward_log(fwd_log)
+
+
+def get_last_forwarded_id(fwd_log, chat_id):
+    """取得某群組上次轉發到哪一則"""
+    return fwd_log.get("last_msg_id", {}).get(str(chat_id), 0)
 
 # Telegram 連結正則
 TG_LINK_PATTERNS = [
@@ -396,14 +405,22 @@ async def mode_batch_resend(client):
     skipped_dup = 0
 
     for source in sources:
-        print(f"\n📥 來源: {source.title}")
+        last_id = get_last_forwarded_id(fwd_log, source.entity.id)
+        if last_id:
+            print(f"\n📥 來源: {source.title}（從上次 #{last_id} 之後開始）")
+        else:
+            print(f"\n📥 來源: {source.title}（首次抓取）")
         count = 0
 
         try:
             raw_msgs = []
-            async for msg in client.iter_messages(source.entity, limit=limit):
+            async for msg in client.iter_messages(source.entity, limit=limit, min_id=last_id):
                 raw_msgs.append(msg)
             raw_msgs.reverse()
+
+            if not raw_msgs:
+                print(f"    沒有新訊息")
+                continue
 
             i = 0
             while i < len(raw_msgs):
