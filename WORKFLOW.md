@@ -219,6 +219,16 @@ python3 tg.py
 
 ---
 
+## 名單可發送範圍
+
+不只有 username 的能發，**有 user_id 也能發私訊**。發送優先順序：
+1. 有 username → 用 username 發
+2. 沒 username 但有 user_id → 用 user_id 發
+
+所以 all_members.csv 裡的人**全部都能發**，不只是 members_with_username.csv 那些。
+
+---
+
 ## 防重複發送（三層保險）
 
 ```
@@ -226,6 +236,15 @@ python3 tg.py
 第 2 層：即時記錄 → 每發一人立刻寫入 dm_sent_log.csv
 第 3 層：啟動檢查 → 重跑自動跳過已發的人
 ```
+
+---
+
+## 來源群組評估紀錄
+
+| 群組 | 連結 | 適合轉發 | 備註 |
+|------|------|---------|------|
+| 真大神俱樂部 | — | ✅ 適合 | 有佳麗圖文，客服 @sexgo8585 |
+| 台中蘋果舔一口 | t.me/apple1314vip | ❌ 不適合 | TG 只有廣告簡介，佳麗內容都在網站 apple1314.vip |
 
 ---
 

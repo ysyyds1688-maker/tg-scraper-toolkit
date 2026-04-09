@@ -476,10 +476,14 @@ def merge_and_dedup():
         writer.writeheader()
         writer.writerows(no_un)
 
+    has_id = [m for m in no_un if m.get("user_id")]
+    can_send = len(has_un) + len(has_id)
+
     print(f"\n統計：")
-    print(f"  全部:        {len(members)} 位 → all_members.csv")
-    print(f"  有 username: {len(has_un)} 位 → members_with_username.csv")
-    print(f"  無 username: {len(no_un)} 位 → members_no_username.csv")
+    print(f"  全部:          {len(members)} 位 → all_members.csv")
+    print(f"  可發送:        {can_send} 位（有 username {len(has_un)} + 有 user_id {len(has_id)}）")
+    print(f"  有 username:   {len(has_un)} 位 → members_with_username.csv")
+    print(f"  無 username:   {len(no_un)} 位 → members_no_username.csv")
 
 
 # ============================================================
