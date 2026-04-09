@@ -346,8 +346,24 @@ async def mode_message_senders(client):
         title = d.title
         print(f"\n  📥 掃描訊息: {title}")
 
+        # 先撈管理員 ID，用來過濾
+        admin_ids = set()
+        try:
+            from telethon.tl.functions.channels import GetParticipantsRequest
+            from telethon.tl.types import ChannelParticipantsAdmins
+            admins = await client(GetParticipantsRequest(
+                channel=entity, filter=ChannelParticipantsAdmins(),
+                offset=0, limit=100, hash=0))
+            for u in admins.users:
+                admin_ids.add(u.id)
+            print(f"    已識別 {len(admin_ids)} 位管理員（將排除）")
+        except Exception:
+            print(f"    無法取得管理員列表（不影響撈取）")
+
         seen_ids = set()
         members = []
+        bot_count = 0
+        admin_count = 0
         msg_count = 0
 
         async for msg in client.iter_messages(entity, limit=limit):
@@ -364,9 +380,17 @@ async def mode_message_senders(client):
             if not sender_id or sender_id in seen_ids:
                 continue
 
-            # 跳過 bot 和頻道
+            # 跳過 bot
             is_bot = getattr(sender, "bot", False)
             if is_bot:
+                bot_count += 1
+                seen_ids.add(sender_id)
+                continue
+
+            # 跳過管理員
+            if sender_id in admin_ids:
+                admin_count += 1
+                seen_ids.add(sender_id)
                 continue
 
             seen_ids.add(sender_id)
@@ -388,6 +412,7 @@ async def mode_message_senders(client):
             })
 
         print(f"    完成: 掃描 {msg_count} 則訊息，撈到 {len(members)} 位發言者")
+        print(f"    已過濾: 管理員 {admin_count} 位，機器人 {bot_count} 位")
 
         if members:
             filepath = save_members_csv(members, f"senders_{safe_filename(title)}", DATA_DIR)
