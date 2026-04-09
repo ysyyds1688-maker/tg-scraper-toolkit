@@ -11,6 +11,9 @@ import os
 import re
 from datetime import datetime
 
+import hashlib
+import json
+
 from config import API_ID, API_HASH, SESSION_NAME, TARGET_CHANNEL
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
@@ -20,11 +23,57 @@ from telethon.errors import FloodWaitError
 # 設定
 # ============================================================
 
-# Bot username（替換原始連結用，留空不替換）
 BOT_USERNAME = "teaprincess_bot"
-
-# 每則訊息底部自動加上的導流文字
 FOOTER_TEXT = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
+FORWARD_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forward_log.json")
+
+
+# ============================================================
+# 防重複
+# ============================================================
+
+def load_forward_log():
+    if not os.path.exists(FORWARD_LOG):
+        return {"message_ids": [], "content_hashes": []}
+    with open(FORWARD_LOG, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["message_ids"] = data.get("message_ids", [])[-10000:]
+    data["content_hashes"] = data.get("content_hashes", [])[-10000:]
+    return data
+
+
+def save_forward_log(data):
+    with open(FORWARD_LOG, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
+
+def get_content_hash(text):
+    if not text:
+        return None
+    clean = re.sub(r"https?://\S+", "", text)
+    clean = re.sub(r"@\w+", "", clean)
+    clean = re.sub(r"[^\w\u4e00-\u9fff]", "", clean)
+    if len(clean) < 10:
+        return None
+    return hashlib.md5(clean.encode()).hexdigest()
+
+
+def is_duplicate(fwd_log, chat_id, msg_id, text):
+    key = f"{chat_id}:{msg_id}"
+    if key in fwd_log["message_ids"]:
+        return True
+    h = get_content_hash(text)
+    if h and h in fwd_log["content_hashes"]:
+        return True
+    return False
+
+
+def mark_forwarded(fwd_log, chat_id, msg_id, text):
+    fwd_log["message_ids"].append(f"{chat_id}:{msg_id}")
+    h = get_content_hash(text)
+    if h:
+        fwd_log["content_hashes"].append(h)
+    save_forward_log(fwd_log)
 
 # Telegram 連結正則
 TG_LINK_PATTERNS = [
@@ -340,61 +389,87 @@ async def mode_batch_resend(client):
     if confirm != "y":
         return
 
+    fwd_log = load_forward_log()
+    print(f"  📝 已轉發記錄: {len(fwd_log['message_ids'])} 則（重複的會跳過）\n")
+
     total = 0
+    skipped_dup = 0
+
     for source in sources:
         print(f"\n📥 來源: {source.title}")
         count = 0
 
         try:
-            # 讀取訊息
             raw_msgs = []
             async for msg in client.iter_messages(source.entity, limit=limit):
                 raw_msgs.append(msg)
-            raw_msgs.reverse()  # 舊→新
+            raw_msgs.reverse()
 
-            # 按 grouped_id 分組
             i = 0
             while i < len(raw_msgs):
                 msg = raw_msgs[i]
                 grouped_id = getattr(msg, "grouped_id", None)
 
                 if grouped_id:
-                    # 收集同一相簿的所有訊息
                     album = [msg]
                     j = i + 1
                     while j < len(raw_msgs) and getattr(raw_msgs[j], "grouped_id", None) == grouped_id:
                         album.append(raw_msgs[j])
                         j += 1
 
+                    # 用第一則的文字檢查重複
+                    album_text = ""
+                    for m in album:
+                        if m.text and m.text.strip():
+                            album_text = m.text.strip()
+                            break
+
+                    if is_duplicate(fwd_log, source.entity.id, album[0].id, album_text):
+                        skipped_dup += 1
+                        print(f"    ⏭ 重複跳過（相簿）")
+                        i = j
+                        continue
+
                     ok = await resend_album(client, target, album, BOT_USERNAME)
                     if ok == "skipped":
                         print(f"    ⏭ 相簿已過濾（福利/名單）")
                     elif ok:
                         count += 1
+                        mark_forwarded(fwd_log, source.entity.id, album[0].id, album_text)
                         print(f"    ✅ 相簿({len(album)}張)")
                     i = j
                 else:
+                    msg_text = (msg.text or "").strip()
+
+                    if is_duplicate(fwd_log, source.entity.id, msg.id, msg_text):
+                        skipped_dup += 1
+                        preview = msg_text[:30] if msg_text else "[媒體]"
+                        print(f"    ⏭ 重複跳過: {preview}")
+                        i += 1
+                        continue
+
                     ok = await resend_message(client, target, msg, BOT_USERNAME)
                     if ok == "skipped":
-                        preview = (msg.text or "")[:30]
+                        preview = msg_text[:30] if msg_text else ""
                         print(f"    ⏭ 已過濾: {preview}...")
                     elif ok:
                         count += 1
-                        preview = (msg.text or "[媒體]")[:40]
+                        mark_forwarded(fwd_log, source.entity.id, msg.id, msg_text)
+                        preview = msg_text[:40] if msg_text else "[媒體]"
                         if count % 10 == 0 or count <= 3:
                             print(f"    ✅ #{count} {preview}")
                     i += 1
 
                 await asyncio.sleep(delay)
 
-            print(f"    完成: {count} 則")
+            print(f"    完成: {count} 則，跳過重複: {skipped_dup} 則")
             total += count
 
         except Exception as e:
             print(f"    ❌ 失敗: {e}")
 
     print(f"\n{'='*50}")
-    print(f"全部完成! 共重新發送 {total} 則訊息")
+    print(f"全部完成! 轉發 {total} 則，跳過重複 {skipped_dup} 則")
 
 
 # ============================================================
