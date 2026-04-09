@@ -20,6 +20,10 @@ def _get_key():
                 return "down"
         elif key == b"\r":
             return "enter"
+        elif key == b" ":
+            return "space"
+        elif key == b"a":
+            return "all"
         return None
     else:
         import tty
@@ -39,6 +43,10 @@ def _get_key():
                         return "down"
             elif ch in ("\r", "\n"):
                 return "enter"
+            elif ch == " ":
+                return "space"
+            elif ch == "a":
+                return "all"
             elif ch == "q":
                 return "quit"
         finally:
@@ -88,6 +96,54 @@ def select_menu(title, options, descriptions=None):
             return selected
         elif key == "quit":
             return -1
+
+
+def select_multi(title, options):
+    """
+    多選選單 — 空白鍵勾選/取消，a 全選/全取消，Enter 確認
+    回傳: 選中的 index 列表，或 [] 表示取消
+    """
+    selected = 0
+    total = len(options)
+    checked = set()
+
+    while True:
+        os.system("cls" if os.name == "nt" else "clear")
+
+        print(f"\033[1;36m")
+        print(f"  ╔═══════════════════════════════════════════════╗")
+        print(f"  ║  {title:<45s} ║")
+        print(f"  ╚═══════════════════════════════════════════════╝")
+        print(f"\033[0m")
+        print(f"  \033[90m上下鍵移動，空白鍵勾選，a 全選/全取消，Enter 確認\033[0m")
+        print(f"  \033[90m已選 {len(checked)} 個\033[0m\n")
+
+        for i, opt in enumerate(options):
+            check = "\033[32m[v]\033[0m" if i in checked else "[ ]"
+            if i == selected:
+                print(f"  \033[1;33m ❯ {check} {opt}\033[0m")
+            else:
+                print(f"    {check} {opt}")
+
+        key = _get_key()
+        if key == "up":
+            selected = (selected - 1) % total
+        elif key == "down":
+            selected = (selected + 1) % total
+        elif key == "space":
+            if selected in checked:
+                checked.discard(selected)
+            else:
+                checked.add(selected)
+        elif key == "all":
+            if len(checked) == total:
+                checked.clear()
+            else:
+                checked = set(range(total))
+        elif key == "enter":
+            return sorted(checked)
+        elif key == "quit":
+            return []
 
 
 def select_menu_grouped(title, groups):

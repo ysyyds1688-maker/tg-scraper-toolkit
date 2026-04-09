@@ -311,24 +311,19 @@ async def mode_search(client):
 
 async def mode_message_senders(client):
     """從群組訊息中撈取所有發言者的 ID 和 username"""
-    print("\n你加入的群組：")
-    print("-" * 60)
     dialogs = await client.get_dialogs()
     groups = [d for d in dialogs if d.is_group or d.is_channel]
 
-    for i, d in enumerate(groups):
+    from menu_ui import select_multi
+    options = []
+    for d in groups:
         entity = d.entity
         count = getattr(entity, "participants_count", 0) or 0
-        is_mega = "👥" if getattr(entity, "megagroup", False) else "📢"
-        print(f"  [{i+1:3d}] {is_mega} {d.title[:45]:<45s} {count:>6d} 人")
+        icon = "👥" if getattr(entity, "megagroup", False) else "📢"
+        options.append(f"{icon} {d.title[:40]} ({count}人)")
 
-    choice = input("\n選擇群組（逗號分隔，如 1,3,5）: ").strip()
-    selected = []
-    for n in choice.split(","):
-        try:
-            selected.append(groups[int(n.strip()) - 1])
-        except (ValueError, IndexError):
-            pass
+    indices = select_multi("選擇群組（空白鍵勾選，a 全選，Enter 確認）", options)
+    selected = [groups[i] for i in indices]
 
     if not selected:
         print("  未選擇群組")
