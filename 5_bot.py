@@ -411,10 +411,9 @@ async def main():
 
         else:
             # 完全沒找到
-            text = "嗨～歡迎光臨，親愛的茶士 🍵\n\n"
-            text += "想約哪位佳麗呢？\n"
-            text += "請點選下方按鈕，直接聯繫該茶莊客服即可安排 ✨\n\n"
-            text += "⚠️ 聯繫客服時記得說是「茶王推薦」的唷！"
+            text = f"抱歉，目前查不到「{keyword}」的資訊 🙏\n\n"
+            text += "請直接聯繫以下茶莊客服詢問，客服會幫您安排 👇\n\n"
+            text += "⚠️ 聯繫時記得說是「茶王推薦」的唷！"
 
             buttons = []
             for a in agents:
@@ -422,7 +421,7 @@ async def main():
             if buttons:
                 await event.respond(text, buttons=buttons)
             else:
-                await event.respond(text + "\n\n目前尚未設定客服，請稍後再試 🙏")
+                await event.respond("目前尚未設定客服，請稍後再試 🙏")
 
     print("等待訊息中...\n")
     await bot.run_until_disconnected()
