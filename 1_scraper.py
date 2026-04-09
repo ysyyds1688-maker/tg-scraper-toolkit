@@ -306,6 +306,102 @@ async def mode_search(client):
 
 
 # ============================================================
+# 模式 5：從訊息撈發言者
+# ============================================================
+
+async def mode_message_senders(client):
+    """從群組訊息中撈取所有發言者的 ID 和 username"""
+    print("\n你加入的群組：")
+    print("-" * 60)
+    dialogs = await client.get_dialogs()
+    groups = [d for d in dialogs if d.is_group or d.is_channel]
+
+    for i, d in enumerate(groups):
+        entity = d.entity
+        count = getattr(entity, "participants_count", 0) or 0
+        is_mega = "👥" if getattr(entity, "megagroup", False) else "📢"
+        print(f"  [{i+1:3d}] {is_mega} {d.title[:45]:<45s} {count:>6d} 人")
+
+    choice = input("\n選擇群組（逗號分隔，如 1,3,5）: ").strip()
+    selected = []
+    for n in choice.split(","):
+        try:
+            selected.append(groups[int(n.strip()) - 1])
+        except (ValueError, IndexError):
+            pass
+
+    if not selected:
+        print("  未選擇群組")
+        return []
+
+    limit_input = input("每個群組掃描幾則訊息？(預設 500, 0=全部): ").strip()
+    limit = int(limit_input) if limit_input.isdigit() else 500
+    if limit == 0:
+        limit = None
+
+    all_members = []
+
+    for d in selected:
+        entity = d.entity
+        title = d.title
+        print(f"\n  📥 掃描訊息: {title}")
+
+        seen_ids = set()
+        members = []
+        msg_count = 0
+
+        async for msg in client.iter_messages(entity, limit=limit):
+            msg_count += 1
+            if msg_count % 200 == 0:
+                print(f"    已掃描 {msg_count} 則訊息，找到 {len(members)} 位發言者...")
+
+            if not msg.sender:
+                continue
+
+            sender = msg.sender
+            sender_id = msg.sender_id
+
+            if not sender_id or sender_id in seen_ids:
+                continue
+
+            # 跳過 bot 和頻道
+            is_bot = getattr(sender, "bot", False)
+            if is_bot:
+                continue
+
+            seen_ids.add(sender_id)
+
+            username = getattr(sender, "username", "") or ""
+            first_name = getattr(sender, "first_name", "") or ""
+            last_name = getattr(sender, "last_name", "") or ""
+            phone = getattr(sender, "phone", "") or ""
+
+            members.append({
+                "user_id": sender_id,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone,
+                "is_bot": False,
+                "source_group": title,
+                "source_group_id": entity.id,
+            })
+
+        print(f"    完成: 掃描 {msg_count} 則訊息，撈到 {len(members)} 位發言者")
+
+        if members:
+            filepath = save_members_csv(members, f"senders_{safe_filename(title)}", DATA_DIR)
+            if filepath:
+                print(f"    已儲存: {filepath}")
+            all_members.extend(members)
+
+        with_un = len([m for m in members if m["username"]])
+        print(f"    有 username: {with_un} 位，無 username: {len(members) - with_un} 位")
+
+    return all_members
+
+
+# ============================================================
 # 合併去重
 # ============================================================
 
@@ -399,9 +495,10 @@ async def main():
     print("  [2] 批量撈所有已加入的群組")
     print("  [3] 關鍵字搜尋群組並撈取")
     print("  [4] 只做合併去重（不撈取）")
+    print("  [5] 從訊息撈發言者（撈不到成員時用這個）")
     print()
 
-    mode = input("選擇模式 (1/2/3/4): ").strip()
+    mode = input("選擇模式 (1/2/3/4/5): ").strip()
 
     client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
     await client.start()
@@ -417,6 +514,8 @@ async def main():
             await mode_search(client)
         elif mode == "4":
             pass
+        elif mode == "5":
+            await mode_message_senders(client)
         else:
             print("無效選擇")
             await client.disconnect()
