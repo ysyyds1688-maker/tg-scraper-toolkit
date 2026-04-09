@@ -1,17 +1,19 @@
 """
-全自動模式 — 一鍵啟動所有功能
-不需要手動操作，設定一次後自動運行：
-  1. Bot 客服（背景持續運行）
-  2. 內容轉發（即時監聽，24 小時）
-  3. 多帳號私訊（每天自動跑）
-  4. 撈名單（每週自動跑）
+全自動託管模式
+一鍵啟動，按帳號角色自動分工：
+  - bot 帳號 → 啟動客服 Bot
+  - forwarder 帳號 → 即時監聽轉發到頻道（24 小時）
+  - dm 帳號 → 每天輪換發私訊
+  - scraper 帳號 → 每週一自動撈名單
 """
 
 import asyncio
 import csv
 import json
 import os
+import re
 import random
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -28,11 +30,11 @@ from telethon import TelegramClient, events, errors
 from messages import get_personalized_messages
 import socks
 
-
 ACCOUNTS_FILE = os.path.join(TOOLKIT_DIR, "accounts.json")
 SENT_LOG = os.path.join(TOOLKIT_DIR, "dm_sent_log.csv")
 STATE_FILE = os.path.join(TOOLKIT_DIR, "dm_state.json")
 AUTOPILOT_LOG = os.path.join(TOOLKIT_DIR, "autopilot.log")
+PYTHON = sys.executable
 
 
 def log(msg):
@@ -44,7 +46,7 @@ def log(msg):
 
 
 # ============================================================
-# 帳號/名單/狀態 載入
+# 帳號載入
 # ============================================================
 
 def load_accounts():
@@ -53,6 +55,10 @@ def load_accounts():
     with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return [a for a in data.get("accounts", []) if a.get("enabled", True)]
+
+
+def get_accounts_by_role(accounts, role):
+    return [a for a in accounts if a.get("role") == role]
 
 
 def make_proxy(proxy_conf):
@@ -68,6 +74,10 @@ def make_proxy(proxy_conf):
     return proxy
 
 
+# ============================================================
+# 名單/狀態
+# ============================================================
+
 def load_contacts():
     from config import DM_CONTACT_FILES
     contacts = []
@@ -77,8 +87,7 @@ def load_contacts():
             continue
         try:
             with open(fp, "r", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
+                for row in csv.DictReader(f):
                     if row.get("is_bot", "").strip().lower() == "true":
                         continue
                     uid = row.get("user_id", "").strip()
@@ -92,11 +101,8 @@ def load_contacts():
                     first = row.get("first_name", "").strip()
                     last = row.get("last_name", "").strip()
                     name = f"{first} {last}".strip() or username or "朋友"
-                    contacts.append({
-                        "user_id": int(uid) if uid.isdigit() else None,
-                        "username": username or None,
-                        "name": name,
-                    })
+                    contacts.append({"user_id": int(uid) if uid.isdigit() else None,
+                                     "username": username or None, "name": name})
         except Exception:
             continue
     return contacts
@@ -107,32 +113,28 @@ def load_sent_log():
     if not os.path.exists(SENT_LOG):
         return sent
     with open(SENT_LOG, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ident = row.get("identifier", "")
-            if ident:
-                sent.add(ident)
+        for row in csv.DictReader(f):
+            if row.get("identifier"):
+                sent.add(row["identifier"])
     return sent
 
 
-def get_identifier(contact):
-    if contact["username"]:
-        return f"username:{contact['username']}"
-    if contact["user_id"]:
-        return f"id:{contact['user_id']}"
+def get_identifier(c):
+    if c["username"]:
+        return f"username:{c['username']}"
+    if c["user_id"]:
+        return f"id:{c['user_id']}"
     return None
 
 
 def log_send(account_name, identifier, name, status, note=""):
     exists = os.path.exists(SENT_LOG)
     with open(SENT_LOG, "a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+        w = csv.writer(f)
         if not exists:
-            writer.writerow(["timestamp", "account", "identifier", "name", "status", "note"])
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            account_name, identifier, name, status, note,
-        ])
+            w.writerow(["timestamp", "account", "identifier", "name", "status", "note"])
+        w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                     account_name, identifier, name, status, note])
 
 
 def load_state():
@@ -140,9 +142,8 @@ def load_state():
         return {"date": datetime.now().strftime("%Y-%m-%d")}
     with open(STATE_FILE, "r", encoding="utf-8") as f:
         state = json.load(f)
-    today = datetime.now().strftime("%Y-%m-%d")
-    if state.get("date") != today:
-        return {"date": today}
+    if state.get("date") != datetime.now().strftime("%Y-%m-%d"):
+        return {"date": datetime.now().strftime("%Y-%m-%d")}
     return state
 
 
@@ -153,137 +154,156 @@ def save_state(state):
 
 
 # ============================================================
-# 私訊發送
+# Task 1: Bot 客服（背景）
+# ============================================================
+
+def start_bot_background():
+    """背景啟動 Bot"""
+    bot_path = os.path.join(TOOLKIT_DIR, "5_bot.py")
+    log_path = os.path.join(TOOLKIT_DIR, "bot.log")
+    if os.name == "nt":
+        os.environ["PYTHONPATH"] = TOOLKIT_DIR
+        subprocess.Popen([PYTHON, bot_path],
+                         stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
+                         creationflags=subprocess.CREATE_NO_WINDOW)
+    else:
+        env_str = f"PYTHONPATH={TOOLKIT_DIR}"
+        os.system(f"nohup env {env_str} {PYTHON} {bot_path} > {log_path} 2>&1 &")
+    log("🤖 Bot 已在背景啟動")
+
+
+# ============================================================
+# Task 2: 內容轉發（背景持續）
+# ============================================================
+
+BOT_USERNAME = "teaprincess_bot"
+FOOTER = ("\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解"
+          "\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！")
+TG_LINKS = [r"https?://t\.me/\+?\w+/?[\w]*", r"https?://telegram\.me/\+?\w+/?[\w]*", r"@[\w]{5,}"]
+BLOCK_KW = ["福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip", "免費無套",
+            "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699"]
+
+
+def should_skip(text):
+    if not text:
+        return False
+    for kw in BLOCK_KW:
+        if kw in text:
+            return True
+    for marker in ["【", "🔺", "➡️"]:
+        if text.count(marker) >= 5:
+            return True
+    return False
+
+
+def replace_links(text):
+    if not text:
+        return text
+    bot_link = f"https://t.me/{BOT_USERNAME}"
+    for pattern in TG_LINKS:
+        for match in re.findall(pattern, text):
+            if BOT_USERNAME not in match:
+                text = text.replace(match, f"👉 諮詢客服: {bot_link}")
+    return text
+
+
+async def task_forward(acc, source_ids, target_id):
+    """用 forwarder 帳號即時監聽轉發"""
+    proxy = make_proxy(acc.get("proxy"))
+    client = TelegramClient(acc["session_name"] + "_fwd", acc["api_id"], acc["api_hash"], proxy=proxy)
+    await client.start()
+    target = await client.get_entity(target_id)
+    log(f"📢 [{acc['name']}] 內容轉發啟動: 監聽 {len(source_ids)} 個來源 → {target.title}")
+
+    count = 0
+    TEMP = os.path.join(TOOLKIT_DIR, "_temp_media")
+
+    @client.on(events.NewMessage(chats=source_ids))
+    async def handler(event):
+        nonlocal count
+        msg = event.message
+        text = (msg.text or "").strip()
+        if should_skip(text):
+            return
+        text = replace_links(text)
+        text = (text + FOOTER) if text else FOOTER.strip()
+        try:
+            if msg.media:
+                os.makedirs(TEMP, exist_ok=True)
+                fp = await client.download_media(msg, file=TEMP)
+                if fp:
+                    await client.send_file(target, fp, caption=text)
+                    os.remove(fp)
+                else:
+                    await client.send_message(target, text)
+            elif text:
+                await client.send_message(target, text)
+            count += 1
+            log(f"  📢 #{count} → {(msg.text or '[媒體]')[:30]}")
+        except Exception as e:
+            log(f"  📢 轉發失敗: {e}")
+
+    await client.run_until_disconnected()
+
+
+# ============================================================
+# Task 3: 多帳號私訊
 # ============================================================
 
 async def send_to_contact(client, contact, account_name):
     identifier = get_identifier(contact)
     name = contact["name"]
-
     try:
-        if contact["username"]:
-            user = await client.get_entity(contact["username"])
-        elif contact["user_id"]:
-            user = await client.get_entity(contact["user_id"])
-        else:
-            return "skip"
+        user = await client.get_entity(contact["username"] or contact["user_id"])
     except Exception:
         log_send(account_name, identifier, name, "resolve_error")
         return "skip"
 
-    messages = get_personalized_messages(name, GROUP_INVITE_LINK)
-
+    msgs = get_personalized_messages(name, GROUP_INVITE_LINK)
     try:
-        for i, msg in enumerate(messages):
+        for i, msg in enumerate(msgs):
             async with client.action(user, "typing"):
                 await asyncio.sleep(max(DM_TYPING_DELAY, len(msg) * 0.05))
             await client.send_message(user, msg)
-            if i < len(messages) - 1:
+            if i < len(msgs) - 1:
                 await asyncio.sleep(random.uniform(DM_SPLIT_DELAY_MIN, DM_SPLIT_DELAY_MAX))
-
-        log_send(account_name, identifier, name, "success", f"{len(messages)} 段")
+        log_send(account_name, identifier, name, "success", f"{len(msgs)} 段")
         return "success"
-
     except errors.FloodWaitError as e:
         log_send(account_name, identifier, name, "flood_wait", f"{e.seconds}s")
         return f"flood:{e.seconds}"
-    except errors.UserPrivacyRestrictedError:
-        log_send(account_name, identifier, name, "privacy")
-        return "skip"
     except errors.PeerFloodError:
         log_send(account_name, identifier, name, "peer_flood")
         return "peer_flood"
+    except errors.UserPrivacyRestrictedError:
+        log_send(account_name, identifier, name, "privacy")
+        return "skip"
     except Exception as e:
         log_send(account_name, identifier, name, "error", str(e))
         return "skip"
 
 
-async def run_dm_for_account(acc, contacts_batch, sent_set):
-    """用一個帳號發送一批人"""
-    acc_name = acc["name"]
-    proxy = make_proxy(acc.get("proxy"))
-
-    try:
-        client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"], proxy=proxy)
-        await client.start()
-        me = await client.get_me()
-        log(f"  [{acc_name}] 登入: {me.first_name}")
-    except Exception as e:
-        log(f"  [{acc_name}] 登入失敗: {e}")
-        return 0
-
-    success = 0
-    processed = 0
-
-    try:
-        for contact in contacts_batch:
-            identifier = get_identifier(contact)
-            if identifier in sent_set:
-                continue
-
-            log(f"  [{acc_name}] #{processed+1}/{len(contacts_batch)} → {contact['name']}")
-
-            result = await send_to_contact(client, contact, acc_name)
-
-            if result == "success":
-                success += 1
-                sent_set.add(identifier)
-                log(f"    ✅ 成功")
-            elif result == "peer_flood":
-                log(f"    🚫 帳號被限制，停止")
-                break
-            elif isinstance(result, str) and result.startswith("flood:"):
-                wait = int(result.split(":")[1])
-                if wait > 300:
-                    log(f"    ⚠️ 限流 {wait}s，停止")
-                    break
-                log(f"    ⚠️ 限流 {wait}s，等待...")
-                await asyncio.sleep(wait + 10)
-            else:
-                log(f"    ⏭ 跳過")
-
-            processed += 1
-            delay = random.uniform(acc["delay_min"], acc["delay_max"])
-            await asyncio.sleep(delay)
-
-    except Exception as e:
-        log(f"  [{acc_name}] 錯誤: {e}")
-
-    await client.disconnect()
-    log(f"  [{acc_name}] 完成: 成功 {success}/{processed}")
-    return success
-
-
-# ============================================================
-# 自動化任務
-# ============================================================
-
-async def task_dm():
-    """多帳號私訊任務"""
-    log("=" * 50)
+async def task_dm(dm_accounts):
+    """多帳號輪換私訊"""
     log("📨 開始多帳號私訊")
-
-    accounts = load_accounts()
-    if not accounts:
-        log("  沒有帳號，跳過")
-        return
 
     contacts = load_contacts()
     sent_set = load_sent_log()
     pending = [c for c in contacts if get_identifier(c) not in sent_set]
+    state = load_state()
 
-    log(f"  名單: {len(contacts)} 人, 已發: {len(sent_set)}, 待發: {len(pending)}")
-
+    log(f"  名單: {len(contacts)}, 已發: {len(sent_set)}, 待發: {len(pending)}")
     if not pending:
         log("  沒有待發名單")
         return
 
-    state = load_state()
-    total_success = 0
-
     # 預分配名單
     idx = 0
-    for acc in accounts:
+    total_success = 0
+
+    random.shuffle(dm_accounts)
+
+    for acc in dm_accounts:
         sent_today = state.get(acc["name"], 0)
         remaining = max(0, acc["daily_limit"] - sent_today)
         if remaining == 0:
@@ -294,103 +314,72 @@ async def task_dm():
             break
         idx += len(batch)
 
-        log(f"\n  啟動 {acc['name']}（分配 {len(batch)} 人）")
-        success = await run_dm_for_account(acc, batch, sent_set)
-        total_success += success
+        log(f"\n  [{acc['name']}] 分配 {len(batch)} 人")
 
-        # 更新狀態
+        proxy = make_proxy(acc.get("proxy"))
+        try:
+            client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"], proxy=proxy)
+            await client.start()
+            me = await client.get_me()
+            log(f"  [{acc['name']}] 登入: {me.first_name}")
+        except Exception as e:
+            log(f"  [{acc['name']}] 登入失敗: {e}")
+            continue
+
+        success = 0
+        for i, contact in enumerate(batch):
+            ident = get_identifier(contact)
+            if ident in sent_set:
+                continue
+
+            log(f"    #{i+1}/{len(batch)} → {contact['name']}")
+            result = await send_to_contact(client, contact, acc["name"])
+
+            if result == "success":
+                success += 1
+                sent_set.add(ident)
+                log(f"      ✅")
+            elif result == "peer_flood":
+                log(f"      🚫 帳號被限制，停止")
+                break
+            elif isinstance(result, str) and result.startswith("flood:"):
+                wait = int(result.split(":")[1])
+                if wait > 300:
+                    log(f"      ⚠️ 限流太久，停止")
+                    break
+                log(f"      ⚠️ 限流 {wait}s")
+                await asyncio.sleep(wait + 10)
+            else:
+                log(f"      ⏭ 跳過")
+
+            await asyncio.sleep(random.uniform(acc["delay_min"], acc["delay_max"]))
+
+        await client.disconnect()
+        total_success += success
         state[acc["name"]] = state.get(acc["name"], 0) + success
         save_state(state)
 
-        # 帳號間休息
-        rest = 30  # 分鐘
+        # 帳號間休息 30 分鐘
         if idx < len(pending):
-            log(f"  😴 休息 {rest} 分鐘...")
-            await asyncio.sleep(rest * 60)
+            log(f"  [{acc['name']}] 完成 {success} 人，休息 30 分鐘...")
+            await asyncio.sleep(30 * 60)
 
     log(f"\n📊 私訊完成: 成功 {total_success} 人")
 
 
-async def task_forward(source_ids, target_id):
-    """即時監聽轉發（背景持續運行）"""
-    import re
-    from config import API_ID, API_HASH, SESSION_NAME
+# ============================================================
+# Task 4: 撈名單
+# ============================================================
 
-    BOT_USERNAME = "teaprincess_bot"
-    FOOTER = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
-    TG_LINKS = [r"https?://t\.me/\+?\w+/?[\w]*", r"https?://telegram\.me/\+?\w+/?[\w]*", r"@[\w]{5,}"]
-    BLOCK_KW = ["福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip", "免費無套",
-                "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699"]
-
-    def should_skip(text):
-        if not text:
-            return False
-        for kw in BLOCK_KW:
-            if kw in text:
-                return True
-        for marker in ["【", "🔺", "➡️"]:
-            if text.count(marker) >= 5:
-                return True
-        return False
-
-    def replace_links(text):
-        if not text:
-            return text
-        bot_link = f"https://t.me/{BOT_USERNAME}"
-        for pattern in TG_LINKS:
-            for match in re.findall(pattern, text):
-                if BOT_USERNAME not in match:
-                    text = text.replace(match, f"👉 諮詢客服: {bot_link}")
-        return text
-
-    client = TelegramClient("forward_session", API_ID, API_HASH)
-    await client.start()
-    target = await client.get_entity(target_id)
-    log(f"📢 內容轉發啟動: 監聽 {len(source_ids)} 個來源 → {target.title}")
-
-    count = 0
-    TEMP = os.path.join(TOOLKIT_DIR, "_temp_media")
-
-    @client.on(events.NewMessage(chats=source_ids))
-    async def handler(event):
-        nonlocal count
-        msg = event.message
-        text = (msg.text or "").strip()
-
-        if should_skip(text):
-            return
-
-        text = replace_links(text)
-        text = (text + FOOTER) if text else FOOTER.strip()
-
-        try:
-            if msg.media:
-                os.makedirs(TEMP, exist_ok=True)
-                filepath = await client.download_media(msg, file=TEMP)
-                if filepath:
-                    await client.send_file(target, filepath, caption=text)
-                    os.remove(filepath)
-                else:
-                    await client.send_message(target, text)
-            elif text:
-                await client.send_message(target, text)
-
-            count += 1
-            ts = datetime.now().strftime("%H:%M:%S")
-            preview = (msg.text or "[媒體]")[:30]
-            log(f"  📢 [{ts}] #{count} → {preview}")
-        except Exception as e:
-            log(f"  📢 轉發失敗: {e}")
-
-    await client.run_until_disconnected()
-
-
-async def task_scrape():
-    """自動撈名單"""
-    log("=" * 50)
+async def task_scrape(scraper_accounts):
+    """用探路號自動撈名單"""
+    if not scraper_accounts:
+        return
+    acc = scraper_accounts[0]
     log("📋 開始自動撈名單")
 
-    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+    proxy = make_proxy(acc.get("proxy"))
+    client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"], proxy=proxy)
     await client.start()
 
     from telethon.tl.functions.channels import GetFullChannelRequest, GetParticipantsRequest
@@ -398,76 +387,57 @@ async def task_scrape():
     from telethon.errors import ChatAdminRequiredError
 
     dialogs = await client.get_dialogs()
-    groups = [d for d in dialogs if d.is_group or d.is_channel]
-
-    total_members = 0
+    total = 0
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    for d in groups:
+    for d in dialogs:
         entity = d.entity
         if not getattr(entity, "megagroup", False):
             continue
-
         try:
             full = await client(GetFullChannelRequest(entity))
             if not getattr(full.full_chat, "can_view_participants", False):
                 continue
-
             test = await client(GetParticipantsRequest(
                 channel=entity, filter=ChannelParticipantsSearch(""),
-                offset=0, limit=10, hash=0,
-            ))
+                offset=0, limit=10, hash=0))
             if test.count < 50:
                 continue
 
-            # 撈取
             members = []
             seen = set()
             offset = 0
             while True:
-                participants = await client(GetParticipantsRequest(
+                p = await client(GetParticipantsRequest(
                     channel=entity, filter=ChannelParticipantsSearch(""),
-                    offset=offset, limit=200, hash=0,
-                ))
-                if not participants.users:
+                    offset=offset, limit=200, hash=0))
+                if not p.users:
                     break
-                for user in participants.users:
-                    if user.id not in seen:
-                        seen.add(user.id)
-                        members.append({
-                            "user_id": user.id,
-                            "username": user.username or "",
-                            "first_name": user.first_name or "",
-                            "last_name": user.last_name or "",
-                            "phone": user.phone or "",
-                            "is_bot": user.bot or False,
-                            "source_group": d.title,
-                            "source_group_id": entity.id,
-                        })
-                offset += len(participants.users)
-                if offset >= participants.count:
+                for u in p.users:
+                    if u.id not in seen:
+                        seen.add(u.id)
+                        members.append({"user_id": u.id, "username": u.username or "",
+                                        "first_name": u.first_name or "", "last_name": u.last_name or "",
+                                        "phone": u.phone or "", "is_bot": u.bot or False,
+                                        "source_group": d.title, "source_group_id": entity.id})
+                offset += len(p.users)
+                if offset >= p.count:
                     break
 
             if members:
-                safe_name = "".join(c if c.isalnum() or c in "_ -" else "_" for c in d.title)[:50]
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filepath = os.path.join(DATA_DIR, f"{safe_name}_{ts}.csv")
-                with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
-                    writer = csv.DictWriter(f, fieldnames=members[0].keys())
-                    writer.writeheader()
-                    writer.writerows(members)
-                total_members += len(members)
+                safe = "".join(c if c.isalnum() or c in "_ -" else "_" for c in d.title)[:50]
+                fp = os.path.join(DATA_DIR, f"{safe}_{datetime.now().strftime('%Y%m%d')}.csv")
+                with open(fp, "w", newline="", encoding="utf-8-sig") as f:
+                    csv.DictWriter(f, fieldnames=members[0].keys()).writeheader()
+                    csv.DictWriter(f, fieldnames=members[0].keys()).writerows(members)
+                total += len(members)
                 log(f"  ✅ {d.title}: {len(members)} 位")
-
-        except ChatAdminRequiredError:
+        except (ChatAdminRequiredError, Exception):
             continue
-        except Exception:
-            continue
-
         await asyncio.sleep(1)
 
     await client.disconnect()
-    log(f"📊 撈名單完成: {total_members} 位")
+    log(f"📊 撈名單完成: {total} 位")
 
 
 # ============================================================
@@ -477,103 +447,116 @@ async def task_scrape():
 async def main():
     print("\033[1;36m")
     print("  ╔═══════════════════════════════════════════════╗")
-    print("  ║       全自動模式 (Autopilot)                  ║")
+    print("  ║       全自動託管模式                           ║")
     print("  ╚═══════════════════════════════════════════════╝")
     print("\033[0m")
 
     accounts = load_accounts()
+    bot_accounts = get_accounts_by_role(accounts, "bot")
+    scraper_accounts = get_accounts_by_role(accounts, "scraper")
+    forwarder_accounts = get_accounts_by_role(accounts, "forwarder")
+    dm_accounts = get_accounts_by_role(accounts, "dm")
+
     contacts = load_contacts()
     sent_set = load_sent_log()
 
-    print(f"  帳號: {len(accounts)} 個")
+    print(f"  帳號分配：")
+    print(f"    🤖 Bot 管理:   {len(bot_accounts)} 個")
+    print(f"    🔍 探路/撈名單: {len(scraper_accounts)} 個")
+    print(f"    📢 內容轉發:   {len(forwarder_accounts)} 個")
+    print(f"    📨 私訊導流:   {len(dm_accounts)} 個")
+    print()
     print(f"  名單: {len(contacts)} 人（待發: {len(contacts) - len(sent_set)}）")
     print()
-    print("  託管模式自動執行：")
-    print("    ✅ 多帳號私訊 — 每天自動跑")
-    print("    ✅ 內容轉發   — 24 小時即時監聽")
-    print("    ✅ 撈名單     — 每週一自動跑")
-    print()
-    print("  ⚠️  Bot 請先用主選單「背景啟動 Bot」開啟")
-    print()
 
-    # 設定內容轉發
-    print("  ── 內容轉發設定 ──\n")
-
-    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    await client.start()
-    dialogs = await client.get_dialogs()
-    groups = [d for d in dialogs if d.is_group or d.is_channel]
-
-    print("  來源群組（監聽哪些群組的新貼文）：")
-    for i, d in enumerate(groups):
-        icon = "📢" if getattr(d.entity, "broadcast", False) else "👥"
-        print(f"    [{i+1:3d}] {icon} {d.title[:45]}")
-
-    source_input = input("\n  輸入來源編號（逗號分隔，如 1,3,5。留空跳過轉發）: ").strip()
+    # 內容轉發需要設定來源和目標
     source_ids = []
-    if source_input:
-        for n in source_input.split(","):
-            try:
-                idx = int(n.strip()) - 1
-                source_ids.append(groups[idx].entity.id)
-            except (ValueError, IndexError):
-                pass
-
     target_input = None
-    if source_ids:
-        target_input = input("  輸入你的頻道（username 或 ID）: ").strip()
-        if target_input.lstrip("-").isdigit():
-            target_input = int(target_input)
 
-    await client.disconnect()
+    if forwarder_accounts:
+        print("  ── 內容轉發設定 ──\n")
+        client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        await client.start()
+        dialogs = await client.get_dialogs()
+        groups = [d for d in dialogs if d.is_group or d.is_channel]
 
-    enable_forward = len(source_ids) > 0 and target_input
+        for i, d in enumerate(groups):
+            icon = "📢" if getattr(d.entity, "broadcast", False) else "👥"
+            print(f"    [{i+1:3d}] {icon} {d.title[:45]}")
 
+        source_input = input("\n  輸入來源編號（逗號分隔。留空跳過轉發）: ").strip()
+        if source_input:
+            for n in source_input.split(","):
+                try:
+                    source_ids.append(groups[int(n.strip()) - 1].entity.id)
+                except (ValueError, IndexError):
+                    pass
+            if source_ids:
+                target_input = input("  輸入你的頻道（username 或 ID）: ").strip()
+                if target_input.lstrip("-").isdigit():
+                    target_input = int(target_input)
+
+        await client.disconnect()
+        print()
+
+    # 確認
+    print("  託管模式將執行：")
+    if bot_accounts:
+        print("    ✅ Bot 客服（背景持續運行）")
+    if forwarder_accounts and source_ids:
+        print("    ✅ 內容轉發（24 小時即時監聽）")
+    if dm_accounts:
+        dm_total = sum(a["daily_limit"] for a in dm_accounts)
+        print(f"    ✅ 私訊導流（{len(dm_accounts)} 帳號，每天 {dm_total} 人）")
+    if scraper_accounts:
+        print("    ✅ 撈名單（每週一自動執行）")
     print()
-    if enable_forward:
-        print(f"  ✅ 內容轉發: 監聽 {len(source_ids)} 個來源")
-    else:
-        print("  ⏭ 內容轉發: 跳過")
-    print()
 
-    confirm = input("  啟動全自動託管模式？(y/n): ").strip().lower()
+    confirm = input("  啟動？(y/n): ").strip().lower()
     if confirm != "y":
         return
 
     log("🚀 全自動託管模式啟動")
+    log(f"   Bot: {len(bot_accounts)} | 轉發: {len(forwarder_accounts)} | "
+        f"私訊: {len(dm_accounts)} | 撈名單: {len(scraper_accounts)}")
 
-    # 背景啟動內容轉發
+    # 1. 啟動 Bot（背景）
+    if bot_accounts:
+        start_bot_background()
+
+    # 2. 啟動內容轉發（背景）
     forward_task = None
-    if enable_forward:
-        log("📢 啟動內容轉發（背景即時監聽）")
-        forward_task = asyncio.create_task(task_forward(source_ids, target_input))
+    if forwarder_accounts and source_ids and target_input:
+        forward_task = asyncio.create_task(
+            task_forward(forwarder_accounts[0], source_ids, target_input))
 
+    # 3. 每日循環：私訊 + 每週撈名單
     last_scrape = None
 
     try:
         while True:
             now = datetime.now()
-
             log(f"\n{'='*55}")
             log(f"📅 {now.strftime('%Y-%m-%d %H:%M')} 開始今日任務")
 
-            # 每天跑私訊
-            await task_dm()
+            # 私訊
+            if dm_accounts:
+                await task_dm(dm_accounts)
 
             # 每週一撈名單
-            if now.weekday() == 0 and last_scrape != now.date():
-                await task_scrape()
+            if scraper_accounts and now.weekday() == 0 and last_scrape != now.date():
+                await task_scrape(scraper_accounts)
                 last_scrape = now.date()
 
             # 等到明天早上 8 點
-            tomorrow_8am = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0)
-            wait_seconds = (tomorrow_8am - datetime.now()).total_seconds()
-            log(f"\n✅ 今日私訊完成，下次: {tomorrow_8am.strftime('%Y-%m-%d %H:%M')}")
-            if enable_forward:
-                log(f"   📢 內容轉發持續監聽中...")
-            log(f"   等待 {wait_seconds/3600:.1f} 小時...")
+            tomorrow = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0)
+            wait = (tomorrow - datetime.now()).total_seconds()
+            log(f"\n✅ 今日完成")
+            log(f"   📢 內容轉發持續監聽中..." if forward_task else "")
+            log(f"   🤖 Bot 持續運行中..." if bot_accounts else "")
+            log(f"   下次私訊: {tomorrow.strftime('%Y-%m-%d %H:%M')}（{wait/3600:.1f} 小時後）")
 
-            await asyncio.sleep(wait_seconds)
+            await asyncio.sleep(wait)
 
     except KeyboardInterrupt:
         log("\n⚠️ 使用者中斷，進度已保存")
