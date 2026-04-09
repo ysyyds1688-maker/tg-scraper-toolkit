@@ -485,15 +485,20 @@ async def run_full_cycle():
     total_members = 0
     total_senders = 0
 
-    print(f"\n  📥 撈取現有群組（{len(existing_groups)} 個）...")
-    for d in existing_groups:
-        m, s = await scrape_group(client, d.entity, d.title)
-        if m or s:
-            print(f"    ✅ {d.title}: 成員 {m} + 發言者 {s}")
-        save_scraped_group(d.entity.id)
-        total_members += m
-        total_senders += s
-        await asyncio.sleep(1)
+    # 只撈還沒撈過的現有群組
+    unscrapped = [d for d in existing_groups if d.entity.id not in scraped_ids]
+    if unscrapped:
+        print(f"\n  📥 撈取未撈過的現有群組（{len(unscrapped)} 個，跳過 {len(existing_groups) - len(unscrapped)} 個已撈過）...")
+        for d in unscrapped:
+            m, s = await scrape_group(client, d.entity, d.title)
+            if m or s:
+                print(f"    ✅ {d.title}: 成員 {m} + 發言者 {s}")
+            save_scraped_group(d.entity.id)
+            total_members += m
+            total_senders += s
+            await asyncio.sleep(1)
+    else:
+        print(f"\n  ⏭ 現有群組全部已撈過（{len(existing_groups)} 個），跳過")
 
     if newly_joined:
         print(f"\n  📥 撈取新群組（{len(newly_joined)} 個）...")
