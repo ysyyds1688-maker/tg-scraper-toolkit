@@ -44,7 +44,9 @@ STAFF_KEYWORDS = [
 JOIN_DELAY_MIN = 30      # 每加一個群最短等待（秒）
 JOIN_DELAY_MAX = 60      # 每加一個群最長等待（秒）
 JOIN_BATCH_SIZE = 8      # 一批最多加幾個
-JOIN_BATCH_REST = 120    # 一批加完休息幾分鐘（秒 x 60）
+JOIN_BATCH_REST = 120    # 一批加完休息（秒）
+MAX_NEW_GROUPS = 20      # 每輪最多加入幾個新群組
+DEEP_CRAWL_LIMIT = 200   # 深度搜尋每個群掃幾則訊息找連結
 
 # 已處理群組記錄
 SCRAPED_LOG = os.path.join(TOOLKIT_DIR, "scraped_groups.json")
@@ -88,18 +90,26 @@ def save_scraped_group(group_id):
 # ============================================================
 
 async def search_new_groups(client, scraped_ids, joined_ids):
-    """用關鍵字搜尋新群組"""
-    print(f"\n  🔍 用 {len(SEARCH_KEYWORDS)} 個關鍵字搜尋新群組...")
-    found = {}  # id -> (entity, keyword)
+    """用關鍵字搜尋新群組（群組優先，頻道另外收集）"""
+    print(f"\n  🔍 用 {len(SEARCH_KEYWORDS)} 個關鍵字搜尋...")
+    found_groups = {}    # id -> (entity, source)
+    found_channels = {}  # id -> (entity, source)
 
     for i, kw in enumerate(SEARCH_KEYWORDS):
         try:
             result = await client(SearchRequest(q=kw, limit=50))
             for chat in result.chats:
-                if isinstance(chat, Channel) and chat.id not in found:
-                    if chat.id not in scraped_ids and chat.id not in joined_ids:
-                        if getattr(chat, "megagroup", False):
-                            found[chat.id] = (chat, kw)
+                if not isinstance(chat, Channel):
+                    continue
+                if chat.id in scraped_ids or chat.id in joined_ids:
+                    continue
+                if chat.id in found_groups or chat.id in found_channels:
+                    continue
+
+                if getattr(chat, "megagroup", False):
+                    found_groups[chat.id] = (chat, f"關鍵字:{kw}")
+                elif getattr(chat, "broadcast", False):
+                    found_channels[chat.id] = (chat, f"關鍵字:{kw}")
         except FloodWaitError as e:
             print(f"    限速 {e.seconds}s，等待...")
             await asyncio.sleep(e.seconds)
@@ -107,8 +117,60 @@ async def search_new_groups(client, scraped_ids, joined_ids):
             pass
         await asyncio.sleep(1.5)
 
-    print(f"    找到 {len(found)} 個新群組")
-    return found
+    print(f"    找到 {len(found_groups)} 個新群組 + {len(found_channels)} 個新頻道")
+    return found_groups, found_channels
+
+
+async def deep_crawl_links(client, scraped_ids, joined_ids):
+    """從已加入群組的訊息中挖掘 t.me 連結，找到新群組"""
+    import re
+    print(f"\n  🕸️ 深度搜尋：掃描訊息中的 t.me 連結...")
+
+    link_pattern = re.compile(r"(?:https?://)?t\.me/(?:\+|joinchat/)?([\w-]+)")
+    found_groups = {}
+    found_channels = {}
+    scanned = 0
+
+    dialogs = await client.get_dialogs()
+    groups = [d for d in dialogs if getattr(d.entity, "megagroup", False)]
+
+    for d in groups[:15]:  # 最多掃 15 個已加入的群組
+        links = set()
+        try:
+            async for msg in client.iter_messages(d.entity, limit=DEEP_CRAWL_LIMIT):
+                if msg.text:
+                    for match in link_pattern.findall(msg.text):
+                        links.add(match)
+            scanned += 1
+
+            for link in links:
+                try:
+                    # 嘗試解析連結
+                    if link.startswith("+") or link.startswith("joinchat"):
+                        continue  # 私密連結跳過，風險高
+                    entity = await client.get_entity(link)
+                    if not isinstance(entity, Channel):
+                        continue
+                    if entity.id in scraped_ids or entity.id in joined_ids:
+                        continue
+                    if entity.id in found_groups or entity.id in found_channels:
+                        continue
+
+                    if getattr(entity, "megagroup", False):
+                        found_groups[entity.id] = (entity, f"連結自:{d.title[:20]}")
+                    elif getattr(entity, "broadcast", False):
+                        found_channels[entity.id] = (entity, f"連結自:{d.title[:20]}")
+
+                    await asyncio.sleep(1)
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    print(f"    掃描 {scanned} 個群組的訊息")
+    print(f"    找到 {len(found_groups)} 個新群組 + {len(found_channels)} 個新頻道")
+    return found_groups, found_channels
 
 
 # ============================================================
@@ -371,7 +433,7 @@ def merge_dedup_and_clean():
 # ============================================================
 
 async def run_full_cycle():
-    """完整一輪：搜尋 → 加入 → 撈取 → 退出 → 合併清洗"""
+    """完整一輪：搜尋 → 深度搜尋 → 加入 → 撈取 → 退出 → 合併清洗"""
     acc = load_scraper_account()
     if acc:
         client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"])
@@ -384,7 +446,7 @@ async def run_full_cycle():
 
     scraped_ids = load_scraped_groups()
 
-    # 取得已加入的群組 ID
+    # 取得已加入的群組/頻道 ID
     dialogs = await client.get_dialogs()
     joined_ids = set()
     existing_groups = []
@@ -394,48 +456,87 @@ async def run_full_cycle():
             if getattr(d.entity, "megagroup", False):
                 existing_groups.append(d)
 
-    # Phase 0: 搜尋新群組
-    new_groups = await search_new_groups(client, scraped_ids, joined_ids)
+    # ── Phase 0a: 關鍵字搜尋 ──
+    search_groups, search_channels = await search_new_groups(client, scraped_ids, joined_ids)
 
-    # Phase 1: 自動加入新群組
-    newly_joined = await join_groups(client, new_groups)
+    # ── Phase 0b: 深度搜尋（從訊息挖連結）──
+    deep_groups, deep_channels = await deep_crawl_links(client, scraped_ids, joined_ids)
 
-    # Phase 2: 撈取所有群組（現有的 + 新加入的）
+    # 合併搜尋結果（群組優先）
+    all_new_groups = {**search_groups, **deep_groups}
+    all_new_channels = {**search_channels, **deep_channels}
+
+    # 限制數量
+    if len(all_new_groups) > MAX_NEW_GROUPS:
+        limited = dict(list(all_new_groups.items())[:MAX_NEW_GROUPS])
+        print(f"\n  ⚠️ 找到 {len(all_new_groups)} 個新群組，本輪只處理 {MAX_NEW_GROUPS} 個")
+        all_new_groups = limited
+
+    print(f"\n  📊 搜尋結果: 群組 {len(all_new_groups)} 個 | 頻道 {len(all_new_channels)} 個（頻道暫不加入）")
+
+    # ── Phase 1: 自動加入群組（頻道不加入）──
+    newly_joined = await join_groups(client, all_new_groups)
+
+    # 更新 joined_ids
+    for entity in newly_joined:
+        joined_ids.add(entity.id)
+
+    # ── Phase 2: 撈取所有群組（現有 + 新加入）──
     total_members = 0
     total_senders = 0
 
-    # 撈現有群組
-    print(f"\n  📥 撈取現有群組...")
+    print(f"\n  📥 撈取現有群組（{len(existing_groups)} 個）...")
     for d in existing_groups:
         m, s = await scrape_group(client, d.entity, d.title)
         if m or s:
             print(f"    ✅ {d.title}: 成員 {m} + 發言者 {s}")
-            save_scraped_group(d.entity.id)
+        save_scraped_group(d.entity.id)
         total_members += m
         total_senders += s
         await asyncio.sleep(1)
 
-    # 撈新加入的群組
     if newly_joined:
-        print(f"\n  📥 撈取新加入的群組...")
+        print(f"\n  📥 撈取新群組（{len(newly_joined)} 個）...")
         for entity in newly_joined:
             m, s = await scrape_group(client, entity, entity.title)
             if m or s:
                 print(f"    ✅ {entity.title}: 成員 {m} + 發言者 {s}")
-                save_scraped_group(entity.id)
+            save_scraped_group(entity.id)
             total_members += m
             total_senders += s
             await asyncio.sleep(1)
 
     print(f"\n  撈取結果: 成員 {total_members} + 發言者 {total_senders}")
 
-    # Phase 3: 退出新加入的群組
+    # ── Phase 3: 退出新加入的群組 ──
     await leave_groups(client, newly_joined)
 
     await client.disconnect()
 
-    # Phase 4: 合併去重 + 清洗
+    # ── Phase 4: 合併去重 + 清洗 ──
     total = merge_dedup_and_clean()
+
+    # 儲存頻道清單供之後參考
+    if all_new_channels:
+        channels_file = os.path.join(TOOLKIT_DIR, "discovered_channels.json")
+        existing_ch = []
+        if os.path.exists(channels_file):
+            with open(channels_file, "r", encoding="utf-8") as f:
+                existing_ch = json.load(f)
+        for gid, (entity, source) in all_new_channels.items():
+            username = getattr(entity, "username", "") or ""
+            existing_ch.append({
+                "id": gid,
+                "title": entity.title,
+                "username": username,
+                "link": f"https://t.me/{username}" if username else "",
+                "source": source,
+                "found_at": datetime.now().strftime("%Y-%m-%d"),
+            })
+        with open(channels_file, "w", encoding="utf-8") as f:
+            json.dump(existing_ch, f, ensure_ascii=False, indent=2)
+        print(f"\n  📢 發現的頻道已存到 discovered_channels.json（{len(all_new_channels)} 個）")
+        print(f"     之後可手動決定要不要加入")
 
     return total
 
@@ -451,11 +552,13 @@ async def main():
     print("  ╚═══════════════════════════════════════════════╝")
     print("\033[0m")
     print("  全自動流程：")
-    print("    1. 搜尋新群組（關鍵字）")
-    print("    2. 自動加入（帶冷卻，每批 8 個）")
-    print("    3. 撈成員列表 + 撈訊息發言者")
-    print("    4. 撈完退出新群組（避免佔滿 500 上限）")
-    print("    5. 合併去重 + 自動清洗")
+    print("    1. 關鍵字搜尋新群組")
+    print("    2. 深度搜尋（從訊息挖 t.me 連結找新群組）")
+    print("    3. 自動加入群組（帶冷卻，每輪最多 20 個）")
+    print("    4. 撈成員列表 + 撈訊息發言者")
+    print("    5. 撈完退出新群組（避免佔滿 500 上限）")
+    print("    6. 合併去重 + 自動清洗")
+    print("    頻道另外記錄，不自動加入")
     print("    每週自動跑一次")
     print()
     print("  按 Ctrl+C 停止\n")
