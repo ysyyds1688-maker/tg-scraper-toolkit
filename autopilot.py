@@ -311,6 +311,80 @@ async def task_dm():
     log(f"\n📊 私訊完成: 成功 {total_success} 人")
 
 
+async def task_forward(source_ids, target_id):
+    """即時監聽轉發（背景持續運行）"""
+    import re
+    from config import API_ID, API_HASH, SESSION_NAME
+
+    BOT_USERNAME = "teaprincess_bot"
+    FOOTER = "\n\n━━━━━━━━━━━━━━━\n🍵 想約這位佳麗？點擊下方從茶王客服，找茶莊的客服了解\n👉 @teaprincess_bot\n📌 聯繫時請說是「茶王推薦」的唷！"
+    TG_LINKS = [r"https?://t\.me/\+?\w+/?[\w]*", r"https?://telegram\.me/\+?\w+/?[\w]*", r"@[\w]{5,}"]
+    BLOCK_KW = ["福利", "買一送一", "半價", "現金劵", "現金券", "VIP", "vip", "免費無套",
+                "名單", "LADIES LIST", "預約制", "BOOKINGS", "gleezy", "jkf699"]
+
+    def should_skip(text):
+        if not text:
+            return False
+        for kw in BLOCK_KW:
+            if kw in text:
+                return True
+        for marker in ["【", "🔺", "➡️"]:
+            if text.count(marker) >= 5:
+                return True
+        return False
+
+    def replace_links(text):
+        if not text:
+            return text
+        bot_link = f"https://t.me/{BOT_USERNAME}"
+        for pattern in TG_LINKS:
+            for match in re.findall(pattern, text):
+                if BOT_USERNAME not in match:
+                    text = text.replace(match, f"👉 諮詢客服: {bot_link}")
+        return text
+
+    client = TelegramClient("forward_session", API_ID, API_HASH)
+    await client.start()
+    target = await client.get_entity(target_id)
+    log(f"📢 內容轉發啟動: 監聽 {len(source_ids)} 個來源 → {target.title}")
+
+    count = 0
+    TEMP = os.path.join(TOOLKIT_DIR, "_temp_media")
+
+    @client.on(events.NewMessage(chats=source_ids))
+    async def handler(event):
+        nonlocal count
+        msg = event.message
+        text = (msg.text or "").strip()
+
+        if should_skip(text):
+            return
+
+        text = replace_links(text)
+        text = (text + FOOTER) if text else FOOTER.strip()
+
+        try:
+            if msg.media:
+                os.makedirs(TEMP, exist_ok=True)
+                filepath = await client.download_media(msg, file=TEMP)
+                if filepath:
+                    await client.send_file(target, filepath, caption=text)
+                    os.remove(filepath)
+                else:
+                    await client.send_message(target, text)
+            elif text:
+                await client.send_message(target, text)
+
+            count += 1
+            ts = datetime.now().strftime("%H:%M:%S")
+            preview = (msg.text or "[媒體]")[:30]
+            log(f"  📢 [{ts}] #{count} → {preview}")
+        except Exception as e:
+            log(f"  📢 轉發失敗: {e}")
+
+    await client.run_until_disconnected()
+
+
 async def task_scrape():
     """自動撈名單"""
     log("=" * 50)
@@ -414,44 +488,99 @@ async def main():
     print(f"  帳號: {len(accounts)} 個")
     print(f"  名單: {len(contacts)} 人（待發: {len(contacts) - len(sent_set)}）")
     print()
-    print("  自動化任務：")
-    print("    1. 多帳號私訊 — 現在開始")
-    print("    2. 撈名單     — 每週一次")
+    print("  託管模式自動執行：")
+    print("    ✅ 多帳號私訊 — 每天自動跑")
+    print("    ✅ 內容轉發   — 24 小時即時監聽")
+    print("    ✅ 撈名單     — 每週一自動跑")
     print()
-    print("  Bot 和內容轉發請另外啟動：")
-    print("    主選單 [11] 背景啟動 Bot")
-    print("    主選單 [6]  啟動即時監聽轉發")
+    print("  ⚠️  Bot 請先用主選單「背景啟動 Bot」開啟")
     print()
 
-    confirm = input("  啟動全自動模式？(y/n): ").strip().lower()
+    # 設定內容轉發
+    print("  ── 內容轉發設定 ──\n")
+
+    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+    await client.start()
+    dialogs = await client.get_dialogs()
+    groups = [d for d in dialogs if d.is_group or d.is_channel]
+
+    print("  來源群組（監聽哪些群組的新貼文）：")
+    for i, d in enumerate(groups):
+        icon = "📢" if getattr(d.entity, "broadcast", False) else "👥"
+        print(f"    [{i+1:3d}] {icon} {d.title[:45]}")
+
+    source_input = input("\n  輸入來源編號（逗號分隔，如 1,3,5。留空跳過轉發）: ").strip()
+    source_ids = []
+    if source_input:
+        for n in source_input.split(","):
+            try:
+                idx = int(n.strip()) - 1
+                source_ids.append(groups[idx].entity.id)
+            except (ValueError, IndexError):
+                pass
+
+    target_input = None
+    if source_ids:
+        target_input = input("  輸入你的頻道（username 或 ID）: ").strip()
+        if target_input.lstrip("-").isdigit():
+            target_input = int(target_input)
+
+    await client.disconnect()
+
+    enable_forward = len(source_ids) > 0 and target_input
+
+    print()
+    if enable_forward:
+        print(f"  ✅ 內容轉發: 監聽 {len(source_ids)} 個來源")
+    else:
+        print("  ⏭ 內容轉發: 跳過")
+    print()
+
+    confirm = input("  啟動全自動託管模式？(y/n): ").strip().lower()
     if confirm != "y":
         return
 
-    log("🚀 全自動模式啟動")
+    log("🚀 全自動託管模式啟動")
+
+    # 背景啟動內容轉發
+    forward_task = None
+    if enable_forward:
+        log("📢 啟動內容轉發（背景即時監聽）")
+        forward_task = asyncio.create_task(task_forward(source_ids, target_input))
 
     last_scrape = None
 
-    while True:
-        now = datetime.now()
+    try:
+        while True:
+            now = datetime.now()
 
-        # 每天跑一次私訊
-        log(f"\n{'='*55}")
-        log(f"📅 {now.strftime('%Y-%m-%d %H:%M')} 開始今日任務")
+            log(f"\n{'='*55}")
+            log(f"📅 {now.strftime('%Y-%m-%d %H:%M')} 開始今日任務")
 
-        await task_dm()
+            # 每天跑私訊
+            await task_dm()
 
-        # 每週一撈一次名單
-        if now.weekday() == 0 and last_scrape != now.date():
-            await task_scrape()
-            last_scrape = now.date()
+            # 每週一撈名單
+            if now.weekday() == 0 and last_scrape != now.date():
+                await task_scrape()
+                last_scrape = now.date()
 
-        # 等到明天早上 8 點
-        tomorrow_8am = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0)
-        wait_seconds = (tomorrow_8am - datetime.now()).total_seconds()
-        log(f"\n✅ 今日任務完成，下次執行: {tomorrow_8am.strftime('%Y-%m-%d %H:%M')}")
-        log(f"   等待 {wait_seconds/3600:.1f} 小時...\n")
+            # 等到明天早上 8 點
+            tomorrow_8am = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0)
+            wait_seconds = (tomorrow_8am - datetime.now()).total_seconds()
+            log(f"\n✅ 今日私訊完成，下次: {tomorrow_8am.strftime('%Y-%m-%d %H:%M')}")
+            if enable_forward:
+                log(f"   📢 內容轉發持續監聽中...")
+            log(f"   等待 {wait_seconds/3600:.1f} 小時...")
 
-        await asyncio.sleep(wait_seconds)
+            await asyncio.sleep(wait_seconds)
+
+    except KeyboardInterrupt:
+        log("\n⚠️ 使用者中斷，進度已保存")
+        if forward_task:
+            forward_task.cancel()
+
+    input("\n按 Enter 返回主選單...")
 
 
 if __name__ == "__main__":
