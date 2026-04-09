@@ -267,6 +267,7 @@ def main_menu():
         {"label": "運行", "items": [
             {"name": "啟動客服 Bot", "desc": "前台運行"},
             {"name": "背景啟動 Bot", "desc": "關終端也不停"},
+            {"name": "全自動託管模式", "desc": "一鍵啟動，每天自動跑私訊+每週撈名單"},
         ]},
         {"label": "", "items": [
             {"name": "離開", "desc": ""},
@@ -287,6 +288,7 @@ def main_menu():
         lambda: run_script("3_dm_multi.py"),
         lambda: run_script("5_bot.py"),
         start_bot_background,
+        lambda: run_script("autopilot.py"),
         None,  # 離開
     ]
 
