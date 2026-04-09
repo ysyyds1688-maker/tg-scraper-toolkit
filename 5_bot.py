@@ -219,7 +219,7 @@ async def main():
         buttons = []
         for agent in agents:
             buttons.append([make_agent_button(agent)])
-        buttons.append([Button.url("📋 茶王頻道", "https://t.me/+hhBXsLhL_7diMGFl")])
+        buttons.append([Button.url("📋 茶王頻道", "https://t.me/+K71Odol9_CYyYzk1")])
 
         await event.respond(text, buttons=buttons)
 
