@@ -393,6 +393,24 @@ async def mode_message_senders(client):
                 seen_ids.add(sender_id)
                 continue
 
+            # 跳過茶莊工作人員（名字含關鍵字）
+            display_name = (
+                (getattr(sender, "first_name", "") or "")
+                + (getattr(sender, "last_name", "") or "")
+                + (getattr(sender, "username", "") or "")
+            ).lower()
+            staff_keywords = [
+                "客服", "經紀", "報班", "預約", "訂位", "接單",
+                "小幫手", "助理", "管理", "官方", "service",
+                "support", "admin", "boss", "老闆",
+                "茶莊", "茶行", "外送", "line",
+            ]
+            is_staff = any(kw in display_name for kw in staff_keywords)
+            if is_staff:
+                admin_count += 1  # 算在管理/內部人員一起
+                seen_ids.add(sender_id)
+                continue
+
             seen_ids.add(sender_id)
 
             username = getattr(sender, "username", "") or ""
@@ -412,7 +430,7 @@ async def mode_message_senders(client):
             })
 
         print(f"    完成: 掃描 {msg_count} 則訊息，撈到 {len(members)} 位發言者")
-        print(f"    已過濾: 管理員 {admin_count} 位，機器人 {bot_count} 位")
+        print(f"    已過濾: 管理員/工作人員 {admin_count} 位，機器人 {bot_count} 位")
 
         if members:
             filepath = save_members_csv(members, f"senders_{safe_filename(title)}", DATA_DIR)
