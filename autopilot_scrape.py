@@ -48,8 +48,20 @@ JOIN_BATCH_REST = 120    # 一批加完休息（秒）
 MAX_NEW_GROUPS = 20      # 每輪最多加入幾個新群組
 DEEP_CRAWL_LIMIT = 200   # 深度搜尋每個群掃幾則訊息找連結
 
+# 黑名單（不撈、不掃的群組，用關鍵字比對群組名稱）
+BLACKLIST = [
+    "台灣群組導航", "Custom Emoji", "PUBG", "吃雞",
+    "測試", "茶王皇朝", "茶王忠臣",
+]
+
 # 已處理群組記錄
 SCRAPED_LOG = os.path.join(TOOLKIT_DIR, "scraped_groups.json")
+
+
+def is_blacklisted(title):
+    """檢查群組名是否在黑名單"""
+    title_lower = title.lower()
+    return any(kw.lower() in title_lower for kw in BLACKLIST)
 
 
 def load_scraper_account():
@@ -106,6 +118,8 @@ async def search_new_groups(client, scraped_ids, joined_ids):
                 if chat.id in found_groups or chat.id in found_channels:
                     continue
 
+                if is_blacklisted(chat.title):
+                    continue
                 if getattr(chat, "megagroup", False):
                     found_groups[chat.id] = (chat, f"關鍵字:{kw}")
                 elif getattr(chat, "broadcast", False):
@@ -510,7 +524,7 @@ async def run_full_cycle():
     total_senders = 0
 
     # 只撈還沒撈過的現有群組
-    unscrapped = [d for d in existing_groups if d.entity.id not in scraped_ids]
+    unscrapped = [d for d in existing_groups if d.entity.id not in scraped_ids and not is_blacklisted(d.title)]
     if unscrapped:
         print(f"\n  📥 撈取未撈過的現有群組（{len(unscrapped)} 個，跳過 {len(existing_groups) - len(unscrapped)} 個已撈過）...")
         for d in unscrapped:
