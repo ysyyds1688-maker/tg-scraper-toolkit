@@ -395,22 +395,23 @@ async def mode_batch_resend(client):
 
     target = await get_target(client, TARGET_CHANNEL)
 
-    limit_input = input("\n每個群組發幾則？(0=全部, 預設 100): ").strip()
-    limit = int(limit_input) if limit_input else 100
-    if limit == 0:
-        limit = None
+    want_input = input("\n每個群組要成功轉發幾則？(0=全部, 預設 10): ").strip()
+    want = int(want_input) if want_input.isdigit() else 10
+    if want == 0:
+        want = 999999
 
     delay_input = input("每則間隔秒數？(預設 3): ").strip()
     delay = int(delay_input) if delay_input.isdigit() else 3
 
     print(f"\n即將從 {len(sources)} 個群組重新發送到 {target.title}")
+    print(f"目標: 每個群組成功轉發 {want if want < 999999 else '全部'} 則")
     print(f"連結替換: {'@' + BOT_USERNAME if BOT_USERNAME else '不替換'}")
     confirm = input("確認開始？(y/n): ").strip().lower()
     if confirm != "y":
         return
 
     fwd_log = load_forward_log()
-    print(f"  📝 已轉發記錄: {len(fwd_log['message_ids'])} 則（重複的會跳過）\n")
+    print(f"  📝 已轉發記錄: {len(fwd_log['message_ids'])} 則（重複/過濾的不算）\n")
 
     total = 0
     skipped_dup = 0
@@ -424,8 +425,10 @@ async def mode_batch_resend(client):
         count = 0
 
         try:
+            # 多抓一些，確保過濾後還能湊滿目標數量
+            fetch_limit = want * 5 if want < 999999 else None
             raw_msgs = []
-            async for msg in client.iter_messages(source.entity, limit=limit, min_id=last_id):
+            async for msg in client.iter_messages(source.entity, limit=fetch_limit, min_id=last_id):
                 raw_msgs.append(msg)
             raw_msgs.reverse()
 
@@ -433,8 +436,15 @@ async def mode_batch_resend(client):
                 print(f"    沒有新訊息")
                 continue
 
+            print(f"    抓到 {len(raw_msgs)} 則，目標成功轉發 {want if want < 999999 else '全部'} 則")
+
             i = 0
             while i < len(raw_msgs):
+                # 達到目標數量就停
+                if count >= want:
+                    print(f"    ✅ 已達目標 {want} 則，停止")
+                    break
+
                 msg = raw_msgs[i]
                 grouped_id = getattr(msg, "grouped_id", None)
 
@@ -445,7 +455,6 @@ async def mode_batch_resend(client):
                         album.append(raw_msgs[j])
                         j += 1
 
-                    # 用第一則的文字檢查重複
                     album_text = ""
                     for m in album:
                         if m.text and m.text.strip():
@@ -454,32 +463,33 @@ async def mode_batch_resend(client):
 
                     if is_duplicate(fwd_log, source.entity.id, album[0].id, album_text):
                         skipped_dup += 1
-                        print(f"    ⏭ 重複跳過（相簿）")
                         i = j
                         continue
 
                     ok = await resend_album(client, target, album, BOT_USERNAME)
                     if ok == "skipped":
-                        print(f"    ⏭ 相簿已過濾（福利/名單）")
+                        pass  # 過濾的不算，繼續找下一則
                     elif ok:
                         count += 1
                         mark_forwarded(fwd_log, source.entity.id, album[0].id, album_text)
-                        print(f"    ✅ 相簿({len(album)}張)")
+                        print(f"    ✅ [{count}/{want}] 相簿({len(album)}張)")
                     i = j
                 else:
                     msg_text = (msg.text or "").strip()
 
                     if is_duplicate(fwd_log, source.entity.id, msg.id, msg_text):
                         skipped_dup += 1
-                        preview = msg_text[:30] if msg_text else "[媒體]"
-                        print(f"    ⏭ 重複跳過: {preview}")
                         i += 1
                         continue
 
                     ok = await resend_message(client, target, msg, BOT_USERNAME)
                     if ok == "skipped":
-                        preview = msg_text[:30] if msg_text else ""
-                        print(f"    ⏭ 已過濾: {preview}...")
+                        pass  # 過濾的不算，繼續找下一則
+                    elif ok:
+                        count += 1
+                        mark_forwarded(fwd_log, source.entity.id, msg.id, msg_text)
+                        preview = msg_text[:40] if msg_text else "[媒體]"
+                        print(f"    ✅ [{count}/{want}] {preview}")
                     elif ok:
                         count += 1
                         mark_forwarded(fwd_log, source.entity.id, msg.id, msg_text)
