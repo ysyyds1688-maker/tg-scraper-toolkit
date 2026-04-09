@@ -215,7 +215,8 @@ async def main():
     print(f"\n📋 讀取名單...")
     contacts = load_contacts(DM_CONTACT_FILES)
     if not contacts:
-        print("❌ 名單為空")
+        print("❌ 名單為空，請先執行撈名單功能")
+        input("\n按 Enter 返回主選單...")
         return
 
     # 統計
@@ -286,6 +287,7 @@ async def main():
     print(f"   失敗: {fail}")
     print(f"   記錄: {DM_SENT_LOG}")
     print("完成!")
+    input("\n按 Enter 返回主選單...")
 
 
 if __name__ == "__main__":

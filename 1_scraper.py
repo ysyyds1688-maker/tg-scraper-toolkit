@@ -430,6 +430,7 @@ async def main():
     finally:
         await client.disconnect()
         print("\n完成!")
+        input("\n按 Enter 返回主選單...")
 
 
 if __name__ == "__main__":

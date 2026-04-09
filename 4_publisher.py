@@ -325,6 +325,7 @@ async def main():
     print(f"   失敗: {fail}")
     print(f"   記錄: {PUBLISHED_LOG}")
     print("完成!")
+    input("\n按 Enter 返回主選單...")
 
 
 if __name__ == "__main__":

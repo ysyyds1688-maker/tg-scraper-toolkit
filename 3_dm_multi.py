@@ -322,10 +322,12 @@ async def main():
 
     if total_quota == 0:
         print("\n所有帳號今日額度已用完")
+        input("\n按 Enter 返回主選單...")
         return
 
     if not pending:
-        print("\n沒有待發名單")
+        print("\n沒有待發名單，請先執行撈名單功能")
+        input("\n按 Enter 返回主選單...")
         return
 
     # 帳號間休息時間
@@ -416,6 +418,7 @@ async def main():
         print(f"   {acc['name']}: {sent_today}/{acc['daily_limit']}")
     print(f"   記錄: {SENT_LOG}")
     print("完成!")
+    input("\n按 Enter 返回主選單...")
 
 
 if __name__ == "__main__":
