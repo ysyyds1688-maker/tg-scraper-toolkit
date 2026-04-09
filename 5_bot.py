@@ -161,6 +161,26 @@ async def main():
     # 載入佳麗資料
     girls_data = load_girls_data()
     print(f"   佳麗資料: {len(girls_data)} 筆貼文")
+
+    # 設定 Bot 指令選單（讓用戶在輸入框旁邊看到 Menu 按鈕）
+    from telethon.tl.functions.bots import SetBotCommandsRequest
+    from telethon.tl.types import BotCommand, BotCommandScopePeerUser, BotCommandScopeDefault
+    try:
+        await bot(SetBotCommandsRequest(
+            scope=BotCommandScopeDefault(),
+            lang_code="",
+            commands=[
+                BotCommand(command="start", description="開始使用 / 查看茶莊客服"),
+                BotCommand(command="menu", description="顯示服務選單"),
+                BotCommand(command="search", description="搜尋佳麗（輸入名字）"),
+                BotCommand(command="list", description="查看所有合作茶莊"),
+                BotCommand(command="help", description="使用說明"),
+            ]
+        ))
+        print("   指令選單: 已設定")
+    except Exception as e:
+        print(f"   指令選單設定失敗: {e}")
+
     print(f"\n🟢 Bot 運行中... (Ctrl+C 停止)\n")
 
     # === /start ===
@@ -171,7 +191,13 @@ async def main():
         text = "嗨～歡迎光臨，親愛的茶士 🍵\n\n"
         text += "想約哪位佳麗呢？\n"
         text += "請點選下方按鈕，直接聯繫該茶莊客服即可安排 ✨\n\n"
-        text += "⚠️ 聯繫客服時記得說是「茶王推薦」的唷！"
+        text += "⚠️ 聯繫客服時記得說是「茶王推薦」的唷！\n\n"
+        text += "━━━━━━━━━━━━━━━\n"
+        text += "📌 指令說明：\n"
+        text += "/menu - 顯示服務選單\n"
+        text += "/search 名字 - 搜尋佳麗\n"
+        text += "/list - 查看所有合作茶莊\n"
+        text += "/help - 使用說明"
 
         if not agents:
             await event.respond(text + "\n\n目前尚未設定客服，請稍後再試 🙏")
@@ -182,6 +208,94 @@ async def main():
             buttons.append([make_agent_button(agent)])
 
         await event.respond(text, buttons=buttons)
+
+    # === /menu 服務選單 ===
+    @bot.on(events.NewMessage(pattern="/menu"))
+    async def menu_handler(event):
+        agents = load_agents()
+        text = "🍵 茶王公主的佳麗 — 服務選單\n\n"
+        text += "請選擇您需要的服務：\n"
+
+        buttons = []
+        for agent in agents:
+            buttons.append([make_agent_button(agent)])
+        buttons.append([Button.url("📋 茶王頻道", "https://t.me/+hhBXsLhL_7diMGFl")])
+
+        await event.respond(text, buttons=buttons)
+
+    # === /search 搜尋佳麗 ===
+    @bot.on(events.NewMessage(pattern=r"/search\s+(.+)"))
+    async def search_handler(event):
+        keyword = event.pattern_match.group(1).strip()
+        agents = load_agents()
+        post, agent = search_girl(keyword, girls_data, agents)
+
+        if post and agent:
+            text = (
+                f"🔍 找到了！\n\n"
+                f"您要約的佳麗來源是「{agent['source_name']}」🍵\n\n"
+                f"請聯繫 {agent['source_name']}-茶莊客服 唷！\n\n"
+                f"⚠️ 記得跟客服說是「茶王推薦」的！"
+            )
+            buttons = [[make_agent_button(agent)]]
+            await event.respond(text, buttons=buttons)
+        elif post:
+            text = f"🔍 找到相關資訊，來源是「{post['channel_name']}」\n但該來源尚未設定客服。\n\n請選擇其他客服聯繫："
+            buttons = [[make_agent_button(a)] for a in agents]
+            await event.respond(text, buttons=buttons if buttons else None)
+        else:
+            text = f"🔍 找不到「{keyword}」相關的佳麗\n\n請直接聯繫客服詢問："
+            buttons = [[make_agent_button(a)] for a in agents]
+            await event.respond(text, buttons=buttons if buttons else None)
+
+    # === /list 查看合作茶莊 ===
+    @bot.on(events.NewMessage(pattern="/list"))
+    async def list_public_handler(event):
+        # 管理員看管理版，一般用戶看公開版
+        if ADMIN_IDS and event.sender_id in ADMIN_IDS:
+            agents = load_agents()
+            if not agents:
+                await event.respond("目前沒有客服")
+                return
+            text = f"📋 客服列表 ({len(agents)} 個來源):\n\n"
+            for i, a in enumerate(agents, 1):
+                link_type = a.get("link_type", "tg")
+                if link_type == "url":
+                    text += f"  {i}. {a['source_name']}-茶莊客服 → {a.get('url', '')[:30]}\n"
+                else:
+                    text += f"  {i}. {a['source_name']}-茶莊客服 → @{a.get('username', '')}\n"
+            text += "\n管理指令:\n/add 來源名稱 username\n/remove 來源名稱\n/reload"
+            await event.respond(text)
+        else:
+            agents = load_agents()
+            text = "🍵 合作茶莊一覽：\n\n"
+            for a in agents:
+                text += f"  🍵 {a['source_name']}\n"
+            text += "\n點選下方按鈕直接聯繫客服 👇\n"
+            text += "⚠️ 聯繫時請說是「茶王推薦」的唷！"
+            buttons = [[make_agent_button(a)] for a in agents]
+            await event.respond(text, buttons=buttons if buttons else None)
+
+    # === /help 使用說明 ===
+    @bot.on(events.NewMessage(pattern="/help"))
+    async def help_handler(event):
+        text = (
+            "📖 使用說明\n\n"
+            "🍵 茶王公主的佳麗 是您的約茶小幫手\n\n"
+            "🔹 怎麼約佳麗？\n"
+            "   → 點選下方茶莊客服按鈕，直接聯繫\n"
+            "   → 或輸入佳麗名字，我幫你找到對應客服\n\n"
+            "🔹 可用指令：\n"
+            "   /start - 重新開始\n"
+            "   /menu  - 服務選單\n"
+            "   /search 名字 - 搜尋佳麗\n"
+            "   /list  - 查看所有合作茶莊\n\n"
+            "🔹 也可以直接輸入佳麗名字，例如：\n"
+            "   「卉欣」「楚楚」「小美」\n"
+            "   我會自動幫你找到對應的茶莊客服 ✨\n\n"
+            "⚠️ 聯繫客服時記得說是「茶王推薦」的唷！"
+        )
+        await event.respond(text)
 
     # === /add 來源名稱 username ===
     @bot.on(events.NewMessage(pattern=r"/add\s+(.+)"))
