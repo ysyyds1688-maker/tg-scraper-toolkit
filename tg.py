@@ -247,27 +247,24 @@ def main_menu():
     from menu_ui import select_menu_grouped
 
     MENU_GROUPS = [
+        {"label": "託管模式（每個終端機開一個）", "items": [
+            {"name": "客服 Bot 託管", "desc": "24 小時自動回覆客服按鈕"},
+            {"name": "內容轉發 託管", "desc": "24 小時即時監聽，自動重發到你的頻道"},
+            {"name": "私訊輪換 託管", "desc": "多帳號每天自動輪換發私訊"},
+            {"name": "撈名單 託管", "desc": "每週自動撈取+加入新群組"},
+        ]},
+        {"label": "手動操作", "items": [
+            {"name": "撈名單", "desc": "手動選群組撈取"},
+            {"name": "抓取圖文", "desc": "頻道圖片+文字"},
+            {"name": "轉發到頻道", "desc": "手動選來源重新發送"},
+            {"name": "發佈到頻道", "desc": "從爬取資料發佈"},
+            {"name": "單帳號私訊", "desc": "用主帳號手動發送"},
+            {"name": "多帳號私訊", "desc": "手動啟動輪換排程"},
+        ]},
         {"label": "設定", "items": [
             {"name": "帳號管理", "desc": "新增/查看/刪除帳號"},
             {"name": "系統設定", "desc": "群組連結/Bot/延遲參數"},
             {"name": "Bot 客服管理", "desc": "新增/刪除客服"},
-        ]},
-        {"label": "採集", "items": [
-            {"name": "撈名單", "desc": "群組成員撈取"},
-            {"name": "抓取圖文", "desc": "頻道圖片+文字"},
-        ]},
-        {"label": "發佈", "items": [
-            {"name": "轉發到頻道", "desc": "重新發送，不顯示來源"},
-            {"name": "發佈到頻道", "desc": "從爬取資料發佈"},
-        ]},
-        {"label": "導流", "items": [
-            {"name": "單帳號私訊", "desc": "用主帳號發送"},
-            {"name": "多帳號私訊", "desc": "自動輪換排程"},
-        ]},
-        {"label": "運行", "items": [
-            {"name": "啟動客服 Bot", "desc": "前台運行"},
-            {"name": "背景啟動 Bot", "desc": "關終端也不停"},
-            {"name": "全自動託管模式", "desc": "一鍵啟動，每天自動跑私訊+每週撈名單"},
         ]},
         {"label": "", "items": [
             {"name": "離開", "desc": ""},
@@ -276,9 +273,12 @@ def main_menu():
 
     # 對應的動作
     ACTIONS = [
-        lambda: run_script("setup_accounts.py"),
-        lambda: run_script("setup_config.py"),
-        lambda: run_script("setup_agents.py"),
+        # 託管模式
+        lambda: run_script("5_bot.py"),                    # Bot 託管
+        lambda: run_script("autopilot_forward.py"),        # 內容轉發 託管
+        lambda: run_script("autopilot_dm.py"),             # 私訊輪換 託管
+        lambda: run_script("autopilot_scrape.py"),         # 撈名單 託管
+        # 手動操作
         lambda: run_script("1_scraper.py"),
         lambda: subprocess.run([PYTHON, os.path.join(TOOLKIT_DIR, "_archive", "girl_scraper.py")],
                                env={**os.environ, "PYTHONPATH": TOOLKIT_DIR}),
@@ -286,9 +286,10 @@ def main_menu():
         lambda: run_script("4_publisher.py"),
         lambda: run_script("3_dm.py"),
         lambda: run_script("3_dm_multi.py"),
-        lambda: run_script("5_bot.py"),
-        start_bot_background,
-        lambda: run_script("autopilot.py"),
+        # 設定
+        lambda: run_script("setup_accounts.py"),
+        lambda: run_script("setup_config.py"),
+        lambda: run_script("setup_agents.py"),
         None,  # 離開
     ]
 
