@@ -177,14 +177,11 @@ async def run_daily():
             break
         idx += len(batch)
 
-        proxy = make_proxy(acc.get("proxy"))
-        try:
-            client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"], proxy=proxy)
-            await client.start()
-            me = await client.get_me()
-            print(f"\n  [{acc['name']}] 登入: {me.first_name}（分配 {len(batch)} 人）")
-        except Exception as e:
-            print(f"  [{acc['name']}] 登入失敗: {e}")
+        from safe_connect import safe_connect
+        client = await safe_connect(acc)
+        if not client:
+            print(f"  [{acc['name']}] 跳過")
+
             continue
 
         success = 0

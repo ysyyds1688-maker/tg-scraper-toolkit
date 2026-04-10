@@ -224,14 +224,9 @@ async def run_single_account(acc, pending, sent_set, state):
         print(f"  ⏭ {acc_name} 今日額度已用完")
         return 0
 
-    proxy = make_proxy(acc.get("proxy"))
-    try:
-        client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"], proxy=proxy)
-        await client.start()
-        me = await client.get_me()
-        print(f"  ✅ {acc_name} 登入: {me.first_name}")
-    except Exception as e:
-        print(f"  ❌ {acc_name} 登入失敗: {e}")
+    from safe_connect import safe_connect
+    client = await safe_connect(acc)
+    if not client:
         return 0
 
     success = 0

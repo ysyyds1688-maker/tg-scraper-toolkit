@@ -490,11 +490,15 @@ async def run_full_cycle():
     """完整一輪：搜尋 → 深度搜尋 → 加入 → 撈取 → 退出 → 合併清洗"""
     acc = load_scraper_account()
     if acc:
-        client = TelegramClient(acc["session_name"], acc["api_id"], acc["api_hash"])
+        from safe_connect import safe_connect
+        client = await safe_connect(acc)
+        if not client:
+            print("  🚨 連線失敗，中止撈名單")
+            return 0
     else:
         client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        await client.start()
 
-    await client.start()
     me = await client.get_me()
     print(f"  ✅ 登入: {me.first_name}")
 
