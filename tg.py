@@ -261,6 +261,7 @@ def main_menu():
             {"name": "單帳號私訊", "desc": "用主帳號手動發送"},
             {"name": "多帳號私訊", "desc": "手動啟動輪換排程"},
             {"name": "關聯分析", "desc": "找出核心推廣者和跨群活躍用戶"},
+            {"name": "網路搜尋群組", "desc": "從 Google/Bing 搜尋 t.me 連結"},
         ]},
         {"label": "設定", "items": [
             {"name": "帳號管理", "desc": "新增/查看/刪除帳號"},
@@ -291,6 +292,7 @@ def main_menu():
         lambda: run_script("3_dm.py"),
         lambda: run_script("3_dm_multi.py"),
         lambda: run_script("analyzer.py"),
+        lambda: run_script("web_finder.py"),
         # 設定
         lambda: run_script("setup_accounts.py"),
         lambda: run_script("setup_config.py"),
