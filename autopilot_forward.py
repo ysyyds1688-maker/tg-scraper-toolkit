@@ -147,8 +147,29 @@ async def main():
     print("  ╚═══════════════════════════════════════════════╝")
     print("\033[0m")
 
-    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    await client.start()
+    # 優先用 role=forwarder 的帳號，沒有才用主帳號
+    import json
+    accounts_file = os.path.join(TOOLKIT_DIR, "accounts.json")
+    forwarder_acc = None
+    if os.path.exists(accounts_file):
+        with open(accounts_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for a in data.get("accounts", []):
+            if a.get("role") == "forwarder" and a.get("enabled", True):
+                forwarder_acc = a
+                break
+
+    if forwarder_acc:
+        from safe_connect import safe_connect
+        client = await safe_connect(forwarder_acc)
+        if not client:
+            print("  🚨 連線失敗，中止")
+            return
+    else:
+        print("  ⚠️ 沒有 role=forwarder 的帳號，使用主帳號")
+        client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        await client.start()
+
     me = await client.get_me()
     print(f"  ✅ 登入: {me.first_name}\n")
 
