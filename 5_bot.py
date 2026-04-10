@@ -53,19 +53,29 @@ def save_agents(agents):
         json.dump(agents, f, ensure_ascii=False, indent=2)
 
 
+CHANNEL_URL = "https://t.me/+K71Odol9_CYyYzk1"
+
+
 def make_agent_button(agent):
     """根據 agent 的 link_type 產生對應的按鈕"""
     name = agent["source_name"]
     link_type = agent.get("link_type", "tg")
 
     if link_type == "url":
-        # 外部連結（LINE 等）
         url = agent.get("url", "")
         return Button.url(f"🍵 {name}-茶莊客服", url)
     else:
-        # TG 帳號
         username = agent.get("username", "")
         return Button.url(f"🍵 {name}-茶莊客服", f"https://t.me/{username}")
+
+
+def make_all_buttons(agents):
+    """產生完整按鈕列表（客服 + 茶王頻道）"""
+    buttons = []
+    for agent in agents:
+        buttons.append([make_agent_button(agent)])
+    buttons.append([Button.url("📋 加入茶王皇朝頻道", CHANNEL_URL)])
+    return buttons
 
 
 def add_agent(source_name, username):
@@ -249,9 +259,7 @@ async def main():
             await event.respond(text + "\n\n目前尚未設定客服，請稍後再試 🙏")
             return
 
-        buttons = []
-        for agent in agents:
-            buttons.append([make_agent_button(agent)])
+        buttons = make_all_buttons(agents)
 
         await event.respond(text, buttons=buttons)
 
@@ -262,10 +270,7 @@ async def main():
         text = "🍵 茶王公主的佳麗 — 服務選單\n\n"
         text += "請選擇您需要的服務：\n"
 
-        buttons = []
-        for agent in agents:
-            buttons.append([make_agent_button(agent)])
-        buttons.append([Button.url("📋 茶王頻道", "https://t.me/+K71Odol9_CYyYzk1")])
+        buttons = make_all_buttons(agents)
 
         await event.respond(text, buttons=buttons)
 
@@ -287,11 +292,11 @@ async def main():
             await event.respond(text, buttons=buttons)
         elif post:
             text = f"🔍 找到相關資訊，來源是「{post['channel_name']}」\n但該來源尚未設定客服。\n\n請選擇其他客服聯繫："
-            buttons = [[make_agent_button(a)] for a in agents]
+            buttons = make_all_buttons(agents)
             await event.respond(text, buttons=buttons if buttons else None)
         else:
             text = f"🔍 找不到「{keyword}」相關的佳麗\n\n請直接聯繫客服詢問："
-            buttons = [[make_agent_button(a)] for a in agents]
+            buttons = make_all_buttons(agents)
             await event.respond(text, buttons=buttons if buttons else None)
 
     # === /list 查看合作茶莊 ===
@@ -319,7 +324,7 @@ async def main():
                 text += f"  🍵 {a['source_name']}\n"
             text += "\n點選下方按鈕直接聯繫客服 👇\n"
             text += "⚠️ 聯繫時請說是「茶王推薦」的唷！"
-            buttons = [[make_agent_button(a)] for a in agents]
+            buttons = make_all_buttons(agents)
             await event.respond(text, buttons=buttons if buttons else None)
 
     # === /help 使用說明 ===
