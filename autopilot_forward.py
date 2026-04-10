@@ -230,13 +230,13 @@ async def main():
             print(f"  [{ts}] ⏭ 重複跳過: {preview}...")
             return
 
-        # 替換連結 + 加底部文字
+        # 深度文案清洗 + 加底部文字
         original_text = text
-        text = replace_links(text)
+        from content_processor import clean_text, obfuscate_image
+        text = clean_text(text)
 
-        # 替換後沒有實質內容且沒媒體，跳過
-        clean = re.sub(r"👉 諮詢客服:.*", "", text).strip()
-        if not clean and not msg.media:
+        # 清洗後沒有實質內容且沒媒體，跳過
+        if not text and not msg.media:
             print(f"  [{ts}] ⏭ 過濾（空訊息）")
             return
 
@@ -249,6 +249,9 @@ async def main():
                 os.makedirs(TEMP_DIR, exist_ok=True)
                 fp = await client.download_media(msg, file=TEMP_DIR)
                 if fp:
+                    # 圖片指紋混淆
+                    if fp.lower().endswith((".jpg", ".jpeg", ".png")):
+                        obfuscate_image(fp)
                     await client.send_file(target, fp, caption=text)
                     os.remove(fp)
                 else:

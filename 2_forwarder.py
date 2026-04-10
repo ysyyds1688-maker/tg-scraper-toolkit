@@ -243,6 +243,8 @@ async def get_target(client, target_channel):
 
 TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_temp_media")
 
+from content_processor import clean_text, obfuscate_image
+
 
 async def download_media(client, msg):
     """下載訊息中的媒體到暫存資料夾，回傳檔案路徑"""
@@ -251,6 +253,9 @@ async def download_media(client, msg):
     os.makedirs(TEMP_DIR, exist_ok=True)
     try:
         path = await client.download_media(msg, file=TEMP_DIR)
+        # 圖片指紋混淆
+        if path and path.lower().endswith((".jpg", ".jpeg", ".png")):
+            obfuscate_image(path)
         return path
     except Exception:
         return None
@@ -264,12 +269,11 @@ async def resend_message(client, target, msg, bot_username, source_name=""):
     if should_skip(text):
         return "skipped"
 
-    if bot_username:
-        text = replace_links(text, bot_username)
+    # 深度文案清洗（移除連結/帳號 + 同義詞替換）
+    text = clean_text(text)
 
-    # 替換連結後如果沒有實質內容，且沒有媒體，跳過
-    clean = re.sub(r"👉 諮詢客服:.*", "", text).strip()
-    if not clean and not msg.media:
+    # 清洗後沒有實質內容且沒媒體，跳過
+    if not text and not msg.media:
         return "skipped"
 
     # 加上客製化底部導流文字
@@ -309,8 +313,8 @@ async def resend_album(client, target, album_msgs, bot_username, source_name="")
     if should_skip(text):
         return "skipped"
 
-    if bot_username:
-        text = replace_links(text, bot_username)
+    # 深度文案清洗
+    text = clean_text(text)
 
     # 加上客製化底部導流文字
     footer = make_footer(source_name) if source_name else make_footer("茶莊")

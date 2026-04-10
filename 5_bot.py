@@ -109,6 +109,42 @@ def load_girls_data():
     return all_posts
 
 
+# 來源群組 → 客服 對應表（模糊比對）
+SOURCE_MAPPING = {
+    "大神": "真大神",
+    "真大神": "真大神",
+    "極樂": "極樂",
+    "貝兒": "貝兒",
+    "步兵": "步兵",
+    "娜娜": "娜娜",
+    "蘋果": "台中蘋果",
+    "含碧樓": "含碧樓",
+    "深夜": "深夜",
+}
+
+
+def match_source_to_agent(source_name, agents):
+    """從來源名稱找到對應的客服"""
+    # 先用 SOURCE_MAPPING 轉換
+    mapped = None
+    for kw, agent_name in SOURCE_MAPPING.items():
+        if kw in source_name:
+            mapped = agent_name
+            break
+
+    if mapped:
+        for agent in agents:
+            if agent["source_name"] == mapped or mapped in agent["source_name"]:
+                return agent
+
+    # 直接比對
+    for agent in agents:
+        if agent["source_name"] in source_name or source_name in agent["source_name"]:
+            return agent
+
+    return None
+
+
 def search_girl(keyword, posts, agents):
     """
     用關鍵字在爬取的資料中搜尋佳麗
@@ -124,20 +160,30 @@ def search_girl(keyword, posts, agents):
         if keyword in post["text"]:
             matched_posts.append(post)
 
+    # 也搜尋名單 CSV（all_members.csv 的 source_group 欄位）
+    if not matched_posts:
+        members_file = os.path.join(TOOLKIT_DIR, "all_members.csv")
+        if os.path.exists(members_file):
+            import csv
+            try:
+                with open(members_file, "r", encoding="utf-8-sig") as f:
+                    for row in csv.DictReader(f):
+                        name = f"{row.get('first_name','')} {row.get('last_name','')}".strip()
+                        if keyword in name:
+                            source = row.get("source_group", "")
+                            agent = match_source_to_agent(source, agents)
+                            if agent:
+                                return {"text": name, "channel_name": source}, agent
+            except Exception:
+                pass
+
     if not matched_posts:
         return None, None
 
     # 用第一個匹配的貼文，找對應的來源
     best = matched_posts[0]
     channel_name = best["channel_name"]
-
-    # 比對哪個客服負責這個來源
-    matched_agent = None
-    for agent in agents:
-        source = agent["source_name"]
-        if source in channel_name or channel_name in source:
-            matched_agent = agent
-            break
+    matched_agent = match_source_to_agent(channel_name, agents)
 
     return best, matched_agent
 
