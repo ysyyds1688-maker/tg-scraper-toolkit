@@ -247,11 +247,19 @@ async def main():
 
     print(f"  共找到 {len(all_links)} 個不重複連結\n")
 
+    # 先存連結（不管 Phase 3 有沒有跑完都不會丟）
+    links_file = os.path.join(TOOLKIT_DIR, "discovered_links.json")
+    with open(links_file, "w", encoding="utf-8") as f:
+        json.dump(sorted(all_links), f, ensure_ascii=False, indent=2)
+    print(f"  連結已存: {links_file}\n")
+
     if not all_links:
         print("  沒有找到連結")
         return
 
-    # Phase 3: 用 TG API 檢查
+    # Phase 3: 用 TG API 檢查（每查 5 個休息 30 秒，避免限速）
+    BATCH_SIZE = 5
+    BATCH_REST = 30
     print("  === Phase 3: 檢查連結 ===\n")
 
     from config import API_ID, API_HASH, SESSION_NAME
@@ -272,10 +280,18 @@ async def main():
 
     results = {"groups": [], "channels": [], "errors": []}
     checked = 0
+    batch_count = 0
 
     for link_id in sorted(all_links):
         if link_id.startswith("+"):
-            continue  # 私密連結先跳過
+            continue
+
+        # 節流：每查 BATCH_SIZE 個休息
+        batch_count += 1
+        if batch_count > BATCH_SIZE:
+            print(f"    休息 {BATCH_REST}s 避免限速...")
+            await asyncio.sleep(BATCH_REST)
+            batch_count = 0
 
         try:
             entity = await client.get_entity(link_id)
@@ -309,6 +325,10 @@ async def main():
             await asyncio.sleep(1)
 
         except FloodWaitError as e:
+            if e.seconds > 300:
+                print(f"\n  🛑 限速 {e.seconds}s（{e.seconds//3600}h），停止檢查")
+                print(f"  已查的結果已儲存，限速解除後可繼續")
+                break
             print(f"  ⚠️ 限速 {e.seconds}s，等待...")
             await asyncio.sleep(e.seconds + 5)
         except (ChannelPrivateError, Exception):
