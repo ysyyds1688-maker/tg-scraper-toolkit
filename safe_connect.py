@@ -17,7 +17,10 @@ import time
 import socks
 import socket
 from telethon import TelegramClient
-from telethon.errors import ConnectionError as TelethonConnectionError
+try:
+    from telethon.errors import ConnectionError as TelethonConnectionError
+except ImportError:
+    TelethonConnectionError = ConnectionError
 
 
 # ============================================================
