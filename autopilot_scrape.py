@@ -626,9 +626,12 @@ async def main():
     print()
     print("  按 Ctrl+C 停止\n")
 
-    confirm = input("  啟動？(y/n): ").strip().lower()
-    if confirm != "y":
-        return
+    try:
+        confirm = input("  啟動？(y/n): ").strip().lower()
+        if confirm != "y":
+            return
+    except EOFError:
+        pass  # 從主選單呼叫時直接啟動
 
     try:
         while True:

@@ -238,9 +238,12 @@ async def main():
     print(f"\n  每天自動跑，跑完等明天 08:00 再跑")
     print(f"  按 Ctrl+C 停止\n")
 
-    confirm = input("  啟動？(y/n): ").strip().lower()
-    if confirm != "y":
-        return
+    try:
+        confirm = input("  啟動？(y/n): ").strip().lower()
+        if confirm != "y":
+            return
+    except EOFError:
+        pass
 
     try:
         while True:

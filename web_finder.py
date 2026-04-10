@@ -536,8 +536,12 @@ async def main():
 
                 # 自動合併去重
                 print("\n自動合併去重中...")
-                import subprocess
-                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "merge_dedup.py")])
+                from importlib import import_module
+                try:
+                    scraper = import_module("1_scraper")
+                    scraper.merge_and_dedup()
+                except Exception:
+                    print("  合併去重失敗，請手動跑撈名單 → 模式 4")
             else:
                 print("\n沒有抓到任何成員")
 
